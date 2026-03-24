@@ -43,11 +43,11 @@ class Simulation:
         #Energy log: list of (time, energy)
         self.energy_log: list[tuple[float, float]] = []
 
-        #Period tracking: dict of {body: period or None}
-        self.period_log: dict[Body, float | None] = {}
+        #Period tracking: dict of {body_name: tracker_data}
+        self.period_tracker: dict[str, dict] = {}
 
-        #period tracker: stores the angle of each planet and tracks the period}
-        self.angle_tracker: dict = {}
+        #Final periods: dict of {body_name: period_in_seconds}
+        self.periods: dict[str, float] = {}
 
 
 
@@ -62,7 +62,7 @@ class Simulation:
                 name=sun_data["name"],
                 mass=sun_data["mass"],
                 orbital_radius=sun_data["orbital_radius"],
-                colour=sun_data["colour"]
+                color=sun_data["colour"]
             ))
 
             # Planets in file order
@@ -71,7 +71,7 @@ class Simulation:
                     name=p["name"],
                     mass=p["mass"],
                     orbital_radius=p["orbital_radius"],
-                    colour=p["colour"]
+                    color=p["colour"]
                 ))
 
         def add_body(self, body: Body) -> None:
@@ -80,7 +80,7 @@ class Simulation:
             Used for satellites in experiments — call after initialise_bodies().
             The body's position and velocity must already be set by the caller.
             """
-            pass #TODO
+            self.bodies.append(body)
 
         def initialize_bodies(self, sun_mass: float) -> None:
             """
@@ -158,7 +158,20 @@ class Simulation:
                 v(t+dt) = v(t) + (1/6)[2a(t+dt) + 5a(t) - a(t-dt)] * dt
                 a(t+dt) = compute_accelerations() at new positions
             """
-            pass #TODO
+            # 1. Update positions
+            for body in self.bodies:
+                body.position += body.velocity * self.dt + (1.0/6.0) * (4.0 * body.acceleration - body.prev_acceleration) * self.dt**2
+
+            # 2. Compute new accelerations
+            new_accels = self.compute_accelerations()
+
+            # 3. Update velocities
+            for body in self.bodies:
+                a_next = new_accels[body.name]
+                body.velocity += (1.0/6.0) * (2.0 * a_next + 5.0 * body.acceleration - body.prev_acceleration) * self.dt
+                # 4. Prepare for next step
+                body.prev_acceleration = body.acceleration.copy()
+                body.acceleration = a_next
 
         def step_euler_cromer(self) -> None:
             """
@@ -166,7 +179,12 @@ class Simulation:
                 v(t+dt) = v(t) + a(t)*dt
                 r(t+dt) = r(t) + v(t+dt)*dt     <- uses NEW velocity
             """
-            pass  # TODO
+            accels = self.compute_accelerations()
+            for body in self.bodies:
+                a = accels[body.name]
+                body.velocity += a * self.dt
+                body.position += body.velocity * self.dt
+                body.acceleration = a
 
         def step_direct_euler(self) -> None:
             """
@@ -175,7 +193,12 @@ class Simulation:
                 v(t+dt) = v(t) + a(t)*dt
             Optionally: swap a(t) -> a(t+dt) in velocity update as an experiment.
             """
-            pass  # TODO
+            accels = self.compute_accelerations()
+            for body in self.bodies:
+                a = accels[body.name]
+                body.position += body.velocity * self.dt
+                body.velocity += a * self.dt
+                body.acceleration = a
 
         def step(self) -> None:
             """Advance simulation by one time step using self.integrator."""
@@ -187,7 +210,7 @@ class Simulation:
                 self.step_direct_euler()
 
             self.time += self.dt
-            self._check_periods()
+            self.check_periods()
 
         # --------------
         # ENERGY
@@ -256,9 +279,9 @@ class Simulation:
                 rel = body.position - sun.position
                 angle = np.arctan2(rel[1], rel[0])  # in (-pi, pi]
 
-                if body.name not in self.period_log:
+                if body.name not in self.period_tracker:
                     # For the first call, to initialize the tracker, nothing to compare yet
-                    self.period_log[body.name] = {
+                    self.period_tracker[body.name] = {
                         "prev_angle": angle,
                         "cumulative": 0.0,
                         "start_time": self.time,
@@ -269,7 +292,7 @@ class Simulation:
                 if body.name in self.periods:
                     continue
 
-                tracker = self.period_log[body.name]
+                tracker = self.period_tracker[body.name]
 
                 # Angular step since the last time-step, normalized to (-pi, pi]
                 # Without normalization, the atan2 wrap from ~pi to ~-pi would appear as a huge jump instead
