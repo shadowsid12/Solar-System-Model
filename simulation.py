@@ -62,7 +62,7 @@ class Simulation:
                 name=sun_data["name"],
                 mass=sun_data["mass"],
                 orbital_radius=sun_data["orbital_radius"],
-                colour=sun_data["colour"],
+                colour=sun_data["colour"]
             ))
 
             # Planets in file order
@@ -71,7 +71,7 @@ class Simulation:
                     name=p["name"],
                     mass=p["mass"],
                     orbital_radius=p["orbital_radius"],
-                    colour=p["colour"],
+                    colour=p["colour"]
                 ))
 
         def add_body(self, body: Body) -> None:
@@ -189,117 +189,124 @@ class Simulation:
             self.time += self.dt
             self._check_periods()
 
-            # --------------
-            # ENERGY
-            # --------------
+        # --------------
+        # ENERGY
+        # --------------
 
-            def total_kinetic_energy(self) -> float:
-                """Sum of (1/2) m v^2 over all bodies."""
-                pass  # TODO
+        def total_kinetic_energy(self) -> float:
+            """Sum of (1/2) m v^2 over all bodies."""
+            return sum(0.5 * b.mass * float(np.dot(b.velocity, b.velocity)) for b in self.bodies)
 
-            def total_potential_energy(self) -> float:
-                """
-                Gravitational potential energy of the system:
-                    U = -G * sum_{i<j} m_i * m_j / |r_ij|
-                Note: sum over unique pairs only (i < j) to avoid double-counting.
-                """
-                pass  # TODO
+        def total_potential_energy(self) -> float:
+            """
+            Gravitational potential energy of the system:
+                U = -G * sum_{i<j} m_i * m_j / |r_ij|
+            Note: sum over unique pairs only (i < j) to avoid double-counting.
+            """
+            pe = 0.0
+            for index_i, body_i in enumerate(self.bodies):
+                for body_j in self.bodies[index_i + 1:]:
+                    dist = np.linalg.norm(body_i.position - body_j.position)
+                    pe += -self.G * body_i.mass * body_j.mass / dist
+            return pe
 
-            def total_energy(self) -> float:
-                return self.total_kinetic_energy() + self.total_potential_energy()
+        def total_energy(self) -> float:
+            return self.total_kinetic_energy() + self.total_potential_energy()
 
-            def log_energy(self) -> None:
-                """Append (current_time, total_energy) to self.energy_log."""
-                self.energy_log.append((self.time, self.total_energy()))
+        def log_energy(self) -> None:
+            """Append (current_time, total_energy) to self.energy_log."""
+            self.energy_log.append((self.time, self.total_energy()))
 
-            def write_energy_to_file(self, filepath: str) -> None:
-                """Write the energy log to a plain-text file (time, energy per line)."""
-                pass  # TODO
+        def write_energy_to_file(self, filepath: str) -> None:
+            """Write the energy log to a CSV file (time in seconds, energy in joules)."""
+            with open(filepath, "w") as f:
+                f.write("time_s,total_energy_J\n")
+                for t, e in self.energy_log:
+                    f.write(f"{t:.6e},{e:.6e}\n")
 
-            # -----------------------
-            # PERIOD DETECTION
-            # -----------------------
+        # -----------------------
+        # PERIOD DETECTION
+        # -----------------------
 
-            def check_periods(self) -> None:
-                """
-                 Detect when a body completes one full orbit using cumulative angle tracking.
+        def check_periods(self) -> None:
+            """
+            Detect when a body completes one full orbit using cumulative angle tracking.
 
-                Each non-Sun, non-satellite body gets an entry in self.period_log:
-                    {
-                        "prev_angle": float,       # atan2 angle at the previous time step
-                        "cumulative": float,       # total angle accumulated so far (radians)
-                        "start_time": float,       # self.time when tracking began
-                    }
-
-                Every call, the angular step (delta_angle) since the last step is computed. Because atan2
-                wraps at ±pi, delta_angle is normalised into (-pi, pi] to handle the wrap-around correctly
-
-                When the cumulative angle first crosses 2*pi, the period is recorded and the tracker entry is
-                removed so it does not trigger again.
-                """
-                sun = self.bodies[0]
-
-                for body in self.bodies[1:]:
-                    # Satellites are not tracked for orbital periods
-                    if body.is_satellite:
-                        continue
-
-                    # Position relative to the Sun
-                    rel = body.position - sun.position
-                    angle = np.arctan2(rel[1], rel[0])  # in (-pi, pi]
-
-                    if body.name not in self.period_log:
-                        # For the first call, to initialize the tracker, nothing to compare yet
-                        self.period_log[body.name] = {
-                            "prev_angle": angle,
-                            "cumulative": 0.0,
-                            "start_time": self.time,
-                        }
-                        continue
-
-                    # Already completed — skip
-                    if body.name in self.periods:
-                        continue
-
-                    tracker = self.period_log[body.name]
-
-                    # Angular step since the last time-step, normalized to (-pi, pi]
-                    # Without normalization, the atan2 wrap from ~pi to ~-pi would appear as a huge jump instead
-                    # of a tiny positive step
-                    delta = angle - tracker["prev_angle"]
-                    delta = (delta + np.pi) % (2 * np.pi) - np.pi
-
-                    tracker["cumulative"] += delta
-                    tracker["prev_angle"] = angle
-
-                    # Full orbit is completed when the cumulative angle first reaches 2*pi
-                    if tracker["cumulative"] >= 2 * np.pi:
-                        self.periods[body.name] = self.time - tracker["start_time"]
-
-
-            def print_periods(self, earth_year_seconds: float = 365.25 * 24 * 3600) -> None:
-                """
-                        Print simulated orbital periods alongside NASA reference values.
-                        NASA reference periods (in Earth years):
-                            Mercury: 0.2409, Venus: 0.6152, Earth: 1.0000,
-                            Mars: 1.8809, Jupiter: 11.862
-                        """
-                nasa = {
-                    "Mercury": 0.2409,
-                    "Venus": 0.6152,
-                    "Earth": 1.0000,
-                    "Mars": 1.8809,
-                    "Jupiter": 11.862,
+            Each non-Sun, non-satellite body gets an entry in self.period_log:
+                {
+                    "prev_angle": float,       # atan2 angle at the previous time step
+                    "cumulative": float,       # total angle accumulated so far (radians)
+                    "start_time": float,       # self.time when tracking began
                 }
 
-                print(f"\n{'Body':<10} {'Simulated (yr)':>15} {'NASA (yr)':>12} {'Error (%)':>10}")
-                print("-" * 50)
+            Every call, the angular step (delta_angle) since the last step is computed. Because atan2
+            wraps at ±pi, delta_angle is normalised into (-pi, pi] to handle the wrap-around correctly
 
-                for body in self.bodies[1:]:
-                    if body.is_satellite or body.name not in self.periods:
-                        continue
-                    simulated_yr = self.periods[body.name] / earth_year_seconds
-                    reference = nasa.get(body.name, float("nan"))
-                    error = abs(simulated_yr - reference) / reference * 100
-                    print(f"{body.name:<10} {simulated_yr:>15.4f} {reference:>12.4f} {error:>9.2f}%")
-                pass  # TODO
+            When the cumulative angle first crosses 2*pi, the period is recorded and the tracker entry is
+            removed so it does not trigger again.
+            """
+            sun = self.bodies[0]
+
+            for body in self.bodies[1:]:
+                # Satellites are not tracked for orbital periods
+                if body.is_satellite:
+                    continue
+
+                # Position relative to the Sun
+                rel = body.position - sun.position
+                angle = np.arctan2(rel[1], rel[0])  # in (-pi, pi]
+
+                if body.name not in self.period_log:
+                    # For the first call, to initialize the tracker, nothing to compare yet
+                    self.period_log[body.name] = {
+                        "prev_angle": angle,
+                        "cumulative": 0.0,
+                        "start_time": self.time,
+                    }
+                    continue
+
+                # Already completed — skip
+                if body.name in self.periods:
+                    continue
+
+                tracker = self.period_log[body.name]
+
+                # Angular step since the last time-step, normalized to (-pi, pi]
+                # Without normalization, the atan2 wrap from ~pi to ~-pi would appear as a huge jump instead
+                # of a tiny positive step
+                delta = angle - tracker["prev_angle"]
+                delta = (delta + np.pi) % (2 * np.pi) - np.pi
+
+                tracker["cumulative"] += delta
+                tracker["prev_angle"] = angle
+
+                # Full orbit is completed when the cumulative angle first reaches 2*pi
+                if tracker["cumulative"] >= 2 * np.pi:
+                    self.periods[body.name] = self.time - tracker["start_time"]
+
+
+        def print_periods(self, earth_year_seconds: float = 365.25 * 24 * 3600) -> None:
+            """
+                    Print simulated orbital periods alongside NASA reference values.
+                    NASA reference periods (in Earth years):
+                        Mercury: 0.2409, Venus: 0.6152, Earth: 1.0000,
+                        Mars: 1.8809, Jupiter: 11.862
+                    """
+            nasa = {
+                "Mercury": 0.2409,
+                "Venus": 0.6152,
+                "Earth": 1.0000,
+                "Mars": 1.8809,
+                "Jupiter": 11.862,
+            }
+
+            print(f"\n{'Body':<10} {'Simulated (yr)':>15} {'NASA (yr)':>12} {'Error (%)':>10}")
+            print("-" * 50)
+
+            for body in self.bodies[1:]:
+                if body.is_satellite or body.name not in self.periods:
+                    continue
+                simulated_yr = self.periods[body.name] / earth_year_seconds
+                reference = nasa.get(body.name, float("nan"))
+                error = abs(simulated_yr - reference) / reference * 100
+                print(f"{body.name:<10} {simulated_yr:>15.4f} {reference:>12.4f} {error:>9.2f}%")
