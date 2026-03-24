@@ -86,13 +86,13 @@ class Simulation:
             """
             Set initial positions and velocities for all bodies.
 
-        Sun:
-            position = origin, velocity = zero, accelerations = zero
+            Sun:
+                position = origin, velocity = zero, accelerations = zero
 
-        Each planet:
-            position = (orbital_radius, 0)   — positive x-axis
-            velocity = (0, v_circ)           — positive y-direction, where v_circ = sqrt(G * M_sun / r)  [Keplerian circular orbit]
-            prev_acceleration = acceleration = compute_accelerations() result (Beeman requires a(t-dt) at t=0; we bootstrap it from a(t=0))
+            Each planet:
+                position = (orbital_radius, 0)   — positive x-axis
+                velocity = (0, v_circ)           — positive y-direction, where v_circ = sqrt(G * M_sun / r)  [Keplerian circular orbit]
+                prev_acceleration = acceleration = compute_accelerations() result (Beeman requires a(t-dt) at t=0; we bootstrap it from a(t=0))
             """
 
             #Initialize the sun
@@ -143,8 +143,8 @@ class Simulation:
                     r_hat = r_ij / dist                         # Unit vector from j to i
 
                     # Magnitude of acceleration: G * m / |r|^2
-                    acc_on_j = self.G * body_i.mass / dist**2 * r_hat
-                    acc_on_i = -acc_on_j # Newtons 3rd law
+                    acc_on_j = self.G * body_i.mass / dist ** 2 * r_hat
+                    acc_on_i = self.G * body_j.mass / dist ** 2 * (-r_hat)  # N3
 
                     accelerations[body_j.name] += acc_on_j
                     accelerations[body_i.name] += acc_on_i
@@ -283,7 +283,6 @@ class Simulation:
                 # Full orbit is completed when the cumulative angle first reaches 2*pi
                 if tracker["cumulative"] >= 2 * np.pi:
                     self.periods[body.name] = self.time - tracker["start_time"]
-
 
         def print_periods(self, earth_year_seconds: float = 365.25 * 24 * 3600) -> None:
             """
