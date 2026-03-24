@@ -1,6 +1,9 @@
 import numpy as np
 import json
+from pathlib import Path
 from bodies import Body
+
+DATA_FILE = Path(__file__).parent / "data" / "planets.json"
 
 class Simulation:
     """
@@ -50,20 +53,68 @@ class Simulation:
 
         def load_bodies_from_json(self, filepath: str) -> None:
             """Read planet data from a JSON file and populate self.bodies"""
-            pass #TODO
+            with open(DATA_FILE, "r") as f:
+                data = json.load(f)
+
+            # Sun first — orbital_radius is 0 but stored for consistency
+            sun_data = data["sun"]
+            self.bodies.append(Body(
+                name=sun_data["name"],
+                mass=sun_data["mass"],
+                orbital_radius=sun_data["orbital_radius"],
+                colour=sun_data["colour"],
+            ))
+
+            # Planets in file order
+            for p in data["planets"]:
+                self.bodies.append(Body(
+                    name=p["name"],
+                    mass=p["mass"],
+                    orbital_radius=p["orbital_radius"],
+                    colour=p["colour"],
+                ))
 
         def add_body(self, body: Body) -> None:
-            """Add a body to the simulation, for the satellite to Mars experiment"""
+            """
+            Manually add a Body to the simulation.
+            Used for satellites in experiments — call after initialise_bodies().
+            The body's position and velocity must already be set by the caller.
+            """
             pass #TODO
 
-        def initialze_bodies(self, sun_mass: float) -> None:
+        def initialize_bodies(self, sun_mass: float) -> None:
             """
-            Place each non-sun body on the positive x-axis at its orbital radius.
-            Set velocity to Keplerian orbit speed: v = sqrt(G * M_sun / r) in positive y-direction
-            :param self:
-            :param sun_mass:
+            Set initial positions and velocities for all bodies.
+
+        Sun:
+            position = origin, velocity = zero, accelerations = zero
+
+        Each planet:
+            position = (orbital_radius, 0)   — positive x-axis
+            velocity = (0, v_circ)           — positive y-direction, where v_circ = sqrt(G * M_sun / r)  [Keplerian circular orbit]
+            prev_acceleration = acceleration = compute_accelerations() result (Beeman requires a(t-dt) at t=0; we bootstrap it from a(t=0))
             """
-            pass #TODO
+
+            #Initialize the sun
+            sun = self.bodies[0]
+            sun.position = np.zeros(2)
+            sun.velocity = np.zeros(2)
+            sun.acceleration = np.zeros(2)
+            sun.prev_acceleration = np.zeros(2)
+
+            for body in self.bodies[1:]:
+                r = body.orbital_radius
+                v_circ = np.sqrt(self.G * sun_mass / r)
+                body.position = np.array([r, 0.0])
+                body.velocity = np.array([0.0, v_circ])
+
+            #Now compute acceleration due to grav force for all bodies now that they have been positioned
+            # Also set prev_acceleration to self.compute_accelerations() result at t=0
+            accelerations = self.compute_accelerations()
+
+            for body in self.bodies:
+                body.acceleration = accelerations[body.name]
+                body.prev_acceleration = accelerations[body.name].copy()
 
         # --------------
         # PHYSICS
@@ -71,13 +122,34 @@ class Simulation:
 
         def compute_accelerations(self) -> dict[str, np.ndarray]:
             """
-            Compute the gravitational acceleration on every body due to all others
-            Returns a dictionary of {body_name: acceleration_vector}
+            Compute the gravitational acceleration on every body due to all others.
+            Returns a dict {body_name: acceleration_vector}.
 
             For body j:
-            a_j = G * sum_{i!=j} [m_i / |r_ij|^2 * r_hat_ij]
+                a_j = G * sum_{i != j} [ m_i / |r_ij|^2 * r_hat_ij ]
+            where r_ij = r_i(t) - r_j(t)  (vector from j to i)
             """
-            pass #TODO
+
+            #Initialize all accelerations to 0
+            accelerations = {body.name: np.zeros(2) for body in self.bodies}
+
+            # Iterate over every unique pair (i, j) with i < j
+            # Newton's third law: force on j from i = -force on i from j
+
+            for index_i, body_i in enumerate(self.bodies):
+                for body_j in self.bodies[index_i+1:]:
+                    r_ij = body_i.position - body_j.position    # Vector from j to i
+                    dist = np.linalg.norm(r_ij)                 # Distance between j and i
+                    r_hat = r_ij / dist                         # Unit vector from j to i
+
+                    # Magnitude of acceleration: G * m / |r|^2
+                    acc_on_j = self.G * body_i.mass / dist**2 * r_hat
+                    acc_on_i = -acc_on_j # Newtons 3rd law
+
+                    accelerations[body_j.name] += acc_on_j
+                    accelerations[body_i.name] += acc_on_i
+
+            return accelerations
 
         def step_beeman(self) -> None:
             """
@@ -148,15 +220,86 @@ class Simulation:
             # PERIOD DETECTION
             # -----------------------
 
-            def _check_periods(self) -> None:
+            def check_periods(self) -> None:
                 """
-                Detect when a body completes one full orbit.
-                Strategy: track the angle of each body relative to the Sun.
-                A full orbit is completed when the cumulative angle crosses 2*pi.
-                Records the period in self.periods on first completion.
+                 Detect when a body completes one full orbit using cumulative angle tracking.
+
+                Each non-Sun, non-satellite body gets an entry in self.period_log:
+                    {
+                        "prev_angle": float,       # atan2 angle at the previous time step
+                        "cumulative": float,       # total angle accumulated so far (radians)
+                        "start_time": float,       # self.time when tracking began
+                    }
+
+                Every call, the angular step (delta_angle) since the last step is computed. Because atan2
+                wraps at ±pi, delta_angle is normalised into (-pi, pi] to handle the wrap-around correctly
+
+                When the cumulative angle first crosses 2*pi, the period is recorded and the tracker entry is
+                removed so it does not trigger again.
                 """
-                pass  # TODO
+                sun = self.bodies[0]
+
+                for body in self.bodies[1:]:
+                    # Satellites are not tracked for orbital periods
+                    if body.is_satellite:
+                        continue
+
+                    # Position relative to the Sun
+                    rel = body.position - sun.position
+                    angle = np.arctan2(rel[1], rel[0])  # in (-pi, pi]
+
+                    if body.name not in self.period_log:
+                        # For the first call, to initialize the tracker, nothing to compare yet
+                        self.period_log[body.name] = {
+                            "prev_angle": angle,
+                            "cumulative": 0.0,
+                            "start_time": self.time,
+                        }
+                        continue
+
+                    # Already completed — skip
+                    if body.name in self.periods:
+                        continue
+
+                    tracker = self.period_log[body.name]
+
+                    # Angular step since the last time-step, normalized to (-pi, pi]
+                    # Without normalization, the atan2 wrap from ~pi to ~-pi would appear as a huge jump instead
+                    # of a tiny positive step
+                    delta = angle - tracker["prev_angle"]
+                    delta = (delta + np.pi) % (2 * np.pi) - np.pi
+
+                    tracker["cumulative"] += delta
+                    tracker["prev_angle"] = angle
+
+                    # Full orbit is completed when the cumulative angle first reaches 2*pi
+                    if tracker["cumulative"] >= 2 * np.pi:
+                        self.periods[body.name] = self.time - tracker["start_time"]
+
 
             def print_periods(self, earth_year_seconds: float = 365.25 * 24 * 3600) -> None:
-                """Print orbital periods in Earth years."""
+                """
+                        Print simulated orbital periods alongside NASA reference values.
+                        NASA reference periods (in Earth years):
+                            Mercury: 0.2409, Venus: 0.6152, Earth: 1.0000,
+                            Mars: 1.8809, Jupiter: 11.862
+                        """
+                nasa = {
+                    "Mercury": 0.2409,
+                    "Venus": 0.6152,
+                    "Earth": 1.0000,
+                    "Mars": 1.8809,
+                    "Jupiter": 11.862,
+                }
+
+                print(f"\n{'Body':<10} {'Simulated (yr)':>15} {'NASA (yr)':>12} {'Error (%)':>10}")
+                print("-" * 50)
+
+                for body in self.bodies[1:]:
+                    if body.is_satellite or body.name not in self.periods:
+                        continue
+                    simulated_yr = self.periods[body.name] / earth_year_seconds
+                    reference = nasa.get(body.name, float("nan"))
+                    error = abs(simulated_yr - reference) / reference * 100
+                    print(f"{body.name:<10} {simulated_yr:>15.4f} {reference:>12.4f} {error:>9.2f}%")
                 pass  # TODO
