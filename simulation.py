@@ -1,37 +1,26 @@
 import numpy as np
 import json
-from pathlib import Path
 from bodies import Body
 
-DATA_FILE = Path(__file__).parent / "data" / "planets.json"
 
 class Simulation:
     """
-    Manages the solar system many-body simulation
+    Manages the solar system many-body simulation.
 
     Responsibilities
     ----------------
-    - Load bodies from JSON file
-    - Initialize positions and velocities
-    - Step the simulation forward using a chosen integration method
-    - Compute accelerations
+    - Load bodies from a JSON file
+    - Initialise positions and velocities
+    - Step the simulation forward using a chosen integrator
+    - Compute accelerations (gravitational many-body)
     - Detect orbital period completion
-    - Track the total energy of the solar system
+    - Track and write total system energy to file
     """
 
-    #Gravitational constant
     G = 6.6743e-11
-
-    #Available integrators
     INTEGRATORS = ("beeman", "euler_cromer", "direct_euler")
 
-    def __init__(self, dt: float, integrator: str = "euler_cromer"):
-        """
-        Parameters
-        ----------
-        :param dt: time step in seconds
-        :param integrator: one of INTEGRATORS
-        """
+    def __init__(self, dt: float, integrator: str = "beeman"):
         if integrator not in self.INTEGRATORS:
             raise ValueError(f"Invalid integrator: {integrator}")
 
@@ -40,295 +29,275 @@ class Simulation:
         self.bodies: list[Body] = []
         self.time: float = 0.0
 
-        #Energy log: list of (time, energy)
         self.energy_log: list[tuple[float, float]] = []
-
-        #Period tracking: dict of {body_name: tracker_data}
         self.period_tracker: dict[str, dict] = {}
-
-        #Final periods: dict of {body_name: period_in_seconds}
         self.periods: dict[str, float] = {}
 
+    # ------------------------------------------------------------------
+    # Setup
+    # ------------------------------------------------------------------
 
+    def load_bodies_from_json(self, filepath: str) -> None:
+        """Read planet data from a JSON file and populate self.bodies."""
+        with open(filepath, "r") as f:
+            data = json.load(f)
 
-        def load_bodies_from_json(self, filepath: str) -> None:
-            """Read planet data from a JSON file and populate self.bodies"""
-            with open(DATA_FILE, "r") as f:
-                data = json.load(f)
+        sun_data = data["sun"]
+        self.bodies.append(Body(
+            name=sun_data["name"],
+            mass=sun_data["mass"],
+            orbital_radius=sun_data["orbital_radius"],
+            colour=sun_data["colour"],
+        ))
 
-            # Sun first — orbital_radius is 0 but stored for consistency
-            sun_data = data["sun"]
+        for p in data["planets"]:
             self.bodies.append(Body(
-                name=sun_data["name"],
-                mass=sun_data["mass"],
-                orbital_radius=sun_data["orbital_radius"],
-                color=sun_data["colour"]
+                name=p["name"],
+                mass=p["mass"],
+                orbital_radius=p["orbital_radius"],
+                colour=p["colour"],
             ))
 
-            # Planets in file order
-            for p in data["planets"]:
-                self.bodies.append(Body(
-                    name=p["name"],
-                    mass=p["mass"],
-                    orbital_radius=p["orbital_radius"],
-                    color=p["colour"]
-                ))
+    def add_body(self, body: Body) -> None:
+        """Manually add a Body (used for satellites). Position and velocity must be set by caller."""
+        self.bodies.append(body)
 
-        def add_body(self, body: Body) -> None:
-            """
-            Manually add a Body to the simulation.
-            Used for satellites in experiments — call after initialise_bodies().
-            The body's position and velocity must already be set by the caller.
-            """
-            self.bodies.append(body)
+    def initialise_bodies(self, sun_mass: float) -> None:
+        """
+        Set initial positions and velocities for all bodies.
 
-        def initialize_bodies(self, sun_mass: float) -> None:
-            """
-            Set initial positions and velocities for all bodies.
+        Sun     : origin, zero velocity
+        Planets : positive x-axis at orbital_radius, Keplerian circular speed in +y
+                  v_circ = sqrt(G * M_sun / r)
 
-            Sun:
-                position = origin, velocity = zero, accelerations = zero
+        Center-of-mass velocity is subtracted, so the system has zero net momentum.
+        prev_acceleration is bootstrapped from a(t=0) for the Beeman method.
+        """
+        sun = self.bodies[0]
+        sun.position = np.zeros(2)
+        sun.velocity = np.zeros(2)
+        sun.acceleration = np.zeros(2)
+        sun.prev_acceleration = np.zeros(2)
 
-            Each planet:
-                position = (orbital_radius, 0)   — positive x-axis
-                velocity = (0, v_circ)           — positive y-direction, where v_circ = sqrt(G * M_sun / r)  [Keplerian circular orbit]
-                prev_acceleration = acceleration = compute_accelerations() result (Beeman requires a(t-dt) at t=0; we bootstrap it from a(t=0))
-            """
+        for body in self.bodies[1:]:
+            r = body.orbital_radius
+            v_circ = np.sqrt(self.G * sun_mass / r)
+            body.position = np.array([r, 0.0])
+            body.velocity = np.array([0.0, v_circ])
 
-            #Initialize the sun
-            sun = self.bodies[0]
-            sun.position = np.zeros(2)
-            sun.velocity = np.zeros(2)
-            sun.acceleration = np.zeros(2)
-            sun.prev_acceleration = np.zeros(2)
+        # Zero the center-of-mass velocity so the Sun doesn't drift
+        total_momentum = sum(b.mass * b.velocity for b in self.bodies)
+        total_mass = sum(b.mass for b in self.bodies)
+        v_com = total_momentum / total_mass
+        for body in self.bodies:
+            body.velocity -= v_com
 
-            for body in self.bodies[1:]:
-                r = body.orbital_radius
-                v_circ = np.sqrt(self.G * sun_mass / r)
-                body.position = np.array([r, 0.0])
-                body.velocity = np.array([0.0, v_circ])
+        # Bootstrap accelerations at t=0
+        accelerations = self.compute_accelerations()
+        for body in self.bodies:
+            body.acceleration = accelerations[body.name]
+            body.prev_acceleration = accelerations[body.name].copy()
 
-            #Now compute acceleration due to grav force for all bodies now that they have been positioned
-            # Also set prev_acceleration to self.compute_accelerations() result at t=0
-            accelerations = self.compute_accelerations()
+    # ------------------------------------------------------------------
+    # Physics
+    # ------------------------------------------------------------------
 
-            for body in self.bodies:
-                body.acceleration = accelerations[body.name]
-                body.prev_acceleration = accelerations[body.name].copy()
+    def compute_accelerations(self) -> dict[str, np.ndarray]:
+        """
+        Gravitational acceleration on every body due to all others.
 
-        # --------------
-        # PHYSICS
-        # --------------
+        For each unique pair (i, j):
+            acc_on_j = G * m_i / |r_ij|^2 * r_hat_ij   (r_ij points j -> i)
+            acc_on_i = G * m_j / |r_ij|^2 * (-r_hat_ij)
 
-        def compute_accelerations(self) -> dict[str, np.ndarray]:
-            """
-            Compute the gravitational acceleration on every body due to all others.
-            Returns a dict {body_name: acceleration_vector}.
+        Newton's third law means forces are equal and opposite,
+        but accelerations differ because masses differ.
+        """
+        accelerations = {body.name: np.zeros(2) for body in self.bodies}
 
-            For body j:
-                a_j = G * sum_{i != j} [ m_i / |r_ij|^2 * r_hat_ij ]
-            where r_ij = r_i(t) - r_j(t)  (vector from j to i)
-            """
+        for index_i, body_i in enumerate(self.bodies):
+            for body_j in self.bodies[index_i + 1:]:
+                r_ij = body_i.position - body_j.position
+                dist = np.linalg.norm(r_ij)
+                r_hat = r_ij / dist
 
-            #Initialize all accelerations to 0
-            accelerations = {body.name: np.zeros(2) for body in self.bodies}
+                acc_on_j = self.G * body_i.mass / dist**2 * r_hat
+                acc_on_i = self.G * body_j.mass / dist**2 * (-r_hat)
 
-            # Iterate over every unique pair (i, j) with i < j
-            # Newton's third law: force on j from i = -force on i from j
+                accelerations[body_j.name] += acc_on_j
+                accelerations[body_i.name] += acc_on_i
 
-            for index_i, body_i in enumerate(self.bodies):
-                for body_j in self.bodies[index_i+1:]:
-                    r_ij = body_i.position - body_j.position    # Vector from j to i
-                    dist = np.linalg.norm(r_ij)                 # Distance between j and i
-                    r_hat = r_ij / dist                         # Unit vector from j to i
+        return accelerations
 
-                    # Magnitude of acceleration: G * m / |r|^2
-                    acc_on_j = self.G * body_i.mass / dist ** 2 * r_hat
-                    acc_on_i = self.G * body_j.mass / dist ** 2 * (-r_hat)  # N3
+    # ------------------------------------------------------------------
+    # Integrators
+    # ------------------------------------------------------------------
 
-                    accelerations[body_j.name] += acc_on_j
-                    accelerations[body_i.name] += acc_on_i
+    def step_beeman(self) -> None:
+        """
+        Beeman update:
+            r(t+dt) = r(t) + v(t)*dt + (1/6)[4a(t) - a(t-dt)] * dt^2
+            a(t+dt) = compute_accelerations() at new positions
+            v(t+dt) = v(t) + (1/6)[2a(t+dt) + 5a(t) - a(t-dt)] * dt
+        """
+        for body in self.bodies:
+            body.position += (body.velocity * self.dt
+                              + (1/6) * (4 * body.acceleration - body.prev_acceleration) * self.dt**2)
 
-            return accelerations
+        new_accels = self.compute_accelerations()
 
-        def step_beeman(self) -> None:
-            """
-            Beeman Update:
-                r(t+dt) = r(t) + v(t) * dt + (1/6)[4a(t) - a(t-dt)] * dt^2
-                v(t+dt) = v(t) + (1/6)[2a(t+dt) + 5a(t) - a(t-dt)] * dt
-                a(t+dt) = compute_accelerations() at new positions
-            """
-            # 1. Update positions
-            for body in self.bodies:
-                body.position += body.velocity * self.dt + (1.0/6.0) * (4.0 * body.acceleration - body.prev_acceleration) * self.dt**2
+        for body in self.bodies:
+            a_next = new_accels[body.name]
+            body.velocity += (1/6) * (2 * a_next + 5 * body.acceleration - body.prev_acceleration) * self.dt
+            body.prev_acceleration = body.acceleration.copy()
+            body.acceleration = a_next
 
-            # 2. Compute new accelerations
-            new_accels = self.compute_accelerations()
+    def step_euler_cromer(self) -> None:
+        """
+        Euler-Cromer update:
+            v(t+dt) = v(t) + a(t)*dt
+            r(t+dt) = r(t) + v(t+dt)*dt     <- uses NEW velocity
 
-            # 3. Update velocities
-            for body in self.bodies:
-                a_next = new_accels[body.name]
-                body.velocity += (1.0/6.0) * (2.0 * a_next + 5.0 * body.acceleration - body.prev_acceleration) * self.dt
-                # 4. Prepare for next step
-                body.prev_acceleration = body.acceleration.copy()
-                body.acceleration = a_next
+        Acceleration is recomputed at the new positions so body.acceleration
+        stays current for energy calculations and period detection.
+        """
+        for body in self.bodies:
+            body.velocity += body.acceleration * self.dt
+            body.position += body.velocity * self.dt
 
-        def step_euler_cromer(self) -> None:
-            """
-            Euler-Cromer update:
-                v(t+dt) = v(t) + a(t)*dt
-                r(t+dt) = r(t) + v(t+dt)*dt     <- uses NEW velocity
-            """
-            accels = self.compute_accelerations()
-            for body in self.bodies:
-                a = accels[body.name]
-                body.velocity += a * self.dt
-                body.position += body.velocity * self.dt
-                body.acceleration = a
+        new_accels = self.compute_accelerations()
+        for body in self.bodies:
+            body.acceleration = new_accels[body.name]
 
-        def step_direct_euler(self) -> None:
-            """
-            Direct (Forward) Euler update:
-                r(t+dt) = r(t) + v(t)*dt         <- uses OLD velocity
-                v(t+dt) = v(t) + a(t)*dt
-            Optionally: swap a(t) -> a(t+dt) in velocity update as an experiment.
-            """
-            accels = self.compute_accelerations()
-            for body in self.bodies:
-                a = accels[body.name]
-                body.position += body.velocity * self.dt
-                body.velocity += a * self.dt
-                body.acceleration = a
+    def step_direct_euler(self) -> None:
+        """
+        Direct (Forward) Euler update:
+            r(t+dt) = r(t) + v(t)*dt         <- uses OLD velocity
+            v(t+dt) = v(t) + a(t)*dt
 
-        def step(self) -> None:
-            """Advance simulation by one time step using self.integrator."""
-            if self.integrator == "beeman":
-                self.step_beeman()
-            elif self.integrator == "euler_cromer":
-                self.step_euler_cromer()
-            elif self.integrator == "direct_euler":
-                self.step_direct_euler()
+        Acceleration is recomputed at the new positions so body.acceleration
+        stays current. Energy will drift upward — this is expected and is the
+        point of Experiment 2.
+        """
+        for body in self.bodies:
+            body.position += body.velocity * self.dt
+            body.velocity += body.acceleration * self.dt
 
-            self.time += self.dt
-            self.check_periods()
+        new_accels = self.compute_accelerations()
+        for body in self.bodies:
+            body.acceleration = new_accels[body.name]
 
-        # --------------
-        # ENERGY
-        # --------------
+    def step(self) -> None:
+        """Advance simulation by one time step using self.integrator."""
+        if self.integrator == "beeman":
+            self.step_beeman()
+        elif self.integrator == "euler_cromer":
+            self.step_euler_cromer()
+        elif self.integrator == "direct_euler":
+            self.step_direct_euler()
 
-        def total_kinetic_energy(self) -> float:
-            """Sum of (1/2) m v^2 over all bodies."""
-            return sum(0.5 * b.mass * float(np.dot(b.velocity, b.velocity)) for b in self.bodies)
+        self.time += self.dt
+        self.check_periods()
 
-        def total_potential_energy(self) -> float:
-            """
-            Gravitational potential energy of the system:
-                U = -G * sum_{i<j} m_i * m_j / |r_ij|
-            Note: sum over unique pairs only (i < j) to avoid double-counting.
-            """
-            pe = 0.0
-            for index_i, body_i in enumerate(self.bodies):
-                for body_j in self.bodies[index_i + 1:]:
-                    dist = np.linalg.norm(body_i.position - body_j.position)
-                    pe += -self.G * body_i.mass * body_j.mass / dist
-            return pe
+    # ------------------------------------------------------------------
+    # Energy
+    # ------------------------------------------------------------------
 
-        def total_energy(self) -> float:
-            return self.total_kinetic_energy() + self.total_potential_energy()
+    def total_kinetic_energy(self) -> float:
+        """Sum of (1/2) m v^2 over all bodies."""
+        return sum(0.5 * b.mass * float(np.dot(b.velocity, b.velocity)) for b in self.bodies)
 
-        def log_energy(self) -> None:
-            """Append (current_time, total_energy) to self.energy_log."""
-            self.energy_log.append((self.time, self.total_energy()))
+    def total_potential_energy(self) -> float:
+        """
+        U = -G * sum_{i<j} m_i * m_j / |r_ij|
+        Unique pairs only to avoid double-counting.
+        """
+        pe = 0.0
+        for index_i, body_i in enumerate(self.bodies):
+            for body_j in self.bodies[index_i + 1:]:
+                dist = np.linalg.norm(body_i.position - body_j.position)
+                pe += -self.G * body_i.mass * body_j.mass / dist
+        return pe
 
-        def write_energy_to_file(self, filepath: str) -> None:
-            """Write the energy log to a CSV file (time in seconds, energy in joules)."""
-            with open(filepath, "w") as f:
-                f.write("time_s,total_energy_J\n")
-                for t, e in self.energy_log:
-                    f.write(f"{t:.6e},{e:.6e}\n")
+    def total_energy(self) -> float:
+        return self.total_kinetic_energy() + self.total_potential_energy()
 
-        # -----------------------
-        # PERIOD DETECTION
-        # -----------------------
+    def log_energy(self) -> None:
+        """Append (current_time, total_energy) to self.energy_log."""
+        self.energy_log.append((self.time, self.total_energy()))
 
-        def check_periods(self) -> None:
-            """
-            Detect when a body completes one full orbit using cumulative angle tracking.
+    def write_energy_to_file(self, filepath: str) -> None:
+        """Write the energy log to a CSV file (time in seconds, energy in joules)."""
+        with open(filepath, "w") as f:
+            f.write("time_s,total_energy_J\n")
+            for t, e in self.energy_log:
+                f.write(f"{t:.6e},{e:.6e}\n")
 
-            Each non-Sun, non-satellite body gets an entry in self.period_log:
-                {
-                    "prev_angle": float,       # atan2 angle at the previous time step
-                    "cumulative": float,       # total angle accumulated so far (radians)
-                    "start_time": float,       # self.time when tracking began
-                }
+    # ------------------------------------------------------------------
+    # Period detection
+    # ------------------------------------------------------------------
 
-            Every call, the angular step (delta_angle) since the last step is computed. Because atan2
-            wraps at ±pi, delta_angle is normalised into (-pi, pi] to handle the wrap-around correctly
+    def check_periods(self) -> None:
+        """
+        Detect when a body completes one full orbit using cumulative angle tracking.
 
-            When the cumulative angle first crosses 2*pi, the period is recorded and the tracker entry is
-            removed so it does not trigger again.
-            """
-            sun = self.bodies[0]
-
-            for body in self.bodies[1:]:
-                # Satellites are not tracked for orbital periods
-                if body.is_satellite:
-                    continue
-
-                # Position relative to the Sun
-                rel = body.position - sun.position
-                angle = np.arctan2(rel[1], rel[0])  # in (-pi, pi]
-
-                if body.name not in self.period_tracker:
-                    # For the first call, to initialize the tracker, nothing to compare yet
-                    self.period_tracker[body.name] = {
-                        "prev_angle": angle,
-                        "cumulative": 0.0,
-                        "start_time": self.time,
-                    }
-                    continue
-
-                # Already completed — skip
-                if body.name in self.periods:
-                    continue
-
-                tracker = self.period_tracker[body.name]
-
-                # Angular step since the last time-step, normalized to (-pi, pi]
-                # Without normalization, the atan2 wrap from ~pi to ~-pi would appear as a huge jump instead
-                # of a tiny positive step
-                delta = angle - tracker["prev_angle"]
-                delta = (delta + np.pi) % (2 * np.pi) - np.pi
-
-                tracker["cumulative"] += delta
-                tracker["prev_angle"] = angle
-
-                # Full orbit is completed when the cumulative angle first reaches 2*pi
-                if tracker["cumulative"] >= 2 * np.pi:
-                    self.periods[body.name] = self.time - tracker["start_time"]
-
-        def print_periods(self, earth_year_seconds: float = 365.25 * 24 * 3600) -> None:
-            """
-                    Print simulated orbital periods alongside NASA reference values.
-                    NASA reference periods (in Earth years):
-                        Mercury: 0.2409, Venus: 0.6152, Earth: 1.0000,
-                        Mars: 1.8809, Jupiter: 11.862
-                    """
-            nasa = {
-                "Mercury": 0.2409,
-                "Venus": 0.6152,
-                "Earth": 1.0000,
-                "Mars": 1.8809,
-                "Jupiter": 11.862,
+        Each non-Sun, non-satellite body gets an entry in self.period_tracker:
+            {
+                "prev_angle": float,    # atan2 angle at previous time step
+                "cumulative": float,    # total angle accumulated (radians)
+                "start_time": float,    # self.time when tracking began
             }
 
-            print(f"\n{'Body':<10} {'Simulated (yr)':>15} {'NASA (yr)':>12} {'Error (%)':>10}")
-            print("-" * 50)
+        Delta is normalized into (-pi, pi] to handle the atan2 wrap-around.
+        Period is recorded when cumulative angle first reaches 2*pi.
+        """
+        sun = self.bodies[0]
 
-            for body in self.bodies[1:]:
-                if body.is_satellite or body.name not in self.periods:
-                    continue
-                simulated_yr = self.periods[body.name] / earth_year_seconds
-                reference = nasa.get(body.name, float("nan"))
-                error = abs(simulated_yr - reference) / reference * 100
-                print(f"{body.name:<10} {simulated_yr:>15.4f} {reference:>12.4f} {error:>9.2f}%")
+        for body in self.bodies[1:]:
+            if body.is_satellite:
+                continue
+
+            rel = body.position - sun.position
+            angle = np.arctan2(rel[1], rel[0])
+
+            if body.name not in self.period_tracker:
+                self.period_tracker[body.name] = {
+                    "prev_angle": angle,
+                    "cumulative": 0.0,
+                    "start_time": self.time,
+                }
+                continue
+
+            if body.name in self.periods:
+                continue
+
+            tracker = self.period_tracker[body.name]
+            delta = angle - tracker["prev_angle"]
+            delta = (delta + np.pi) % (2 * np.pi) - np.pi
+
+            tracker["cumulative"] += delta
+            tracker["prev_angle"] = angle
+
+            if tracker["cumulative"] >= 2 * np.pi:
+                self.periods[body.name] = self.time - tracker["start_time"]
+
+    def print_periods(self, earth_year_seconds: float = 365.25 * 24 * 3600) -> None:
+        """Print simulated periods vs NASA reference values."""
+        nasa = {
+            "Mercury": 0.2409,
+            "Venus":   0.6152,
+            "Earth":   1.0000,
+            "Mars":    1.8809,
+            "Jupiter": 11.862,
+        }
+
+        print(f"\n{'Body':<10} {'Simulated (yr)':>15} {'NASA (yr)':>12} {'Error (%)':>10}")
+        print("-" * 50)
+
+        for body in self.bodies[1:]:
+            if body.is_satellite or body.name not in self.periods:
+                continue
+            simulated_yr = self.periods[body.name] / earth_year_seconds
+            reference    = nasa.get(body.name, float("nan"))
+            error        = abs(simulated_yr - reference) / reference * 100
+            print(f"{body.name:<10} {simulated_yr:>15.4f} {reference:>12.4f} {error:>9.2f}%")

@@ -11,7 +11,7 @@ class Body:
         velocity : np.ndarray               [x,y] ms^-1
         acceleration : np.ndarray           current [x,y] ms^-2
         prev_acceleration : np.ndarray      previous [x,y] ms^-2 (required for Beeman Method)
-        color: str                          for matplotlib
+        colour: str                          for matplotlib
         orbital_radius : float                      orbital radius in metres (for initialization)
         is_satellite : bool                 default False
     """
@@ -19,11 +19,11 @@ class Body:
     #Gravitational constant
     G = 6.6743e-11
 
-    def __init__(self, name: str, mass: float, orbital_radius: float, color: str = 'blue', is_satellite: bool = False):
+    def __init__(self, name: str, mass: float, orbital_radius: float, colour: str = 'blue', is_satellite: bool = False):
         self.name = name
         self.mass = mass
         self.orbital_radius = orbital_radius
-        self.color = color
+        self.colour = colour
         self.is_satellite = is_satellite
 
         self.position = np.zeros(2)
