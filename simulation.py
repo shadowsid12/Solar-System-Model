@@ -70,7 +70,7 @@ class Simulation:
         Planets : positive x-axis at orbital_radius, Keplerian circular speed in +y
                   v_circ = sqrt(G * M_sun / r)
 
-        Center-of-mass velocity is subtracted, so the system has zero net momentum.
+        Centre-of-mass velocity is subtracted so the system has zero net momentum.
         prev_acceleration is bootstrapped from a(t=0) for the Beeman method.
         """
         sun = self.bodies[0]
@@ -85,7 +85,7 @@ class Simulation:
             body.position = np.array([r, 0.0])
             body.velocity = np.array([0.0, v_circ])
 
-        # Zero the center-of-mass velocity so the Sun doesn't drift
+        # Zero the centre-of-mass velocity so the Sun doesn't drift
         total_momentum = sum(b.mass * b.velocity for b in self.bodies)
         total_mass = sum(b.mass for b in self.bodies)
         v_com = total_momentum / total_mass
@@ -115,8 +115,8 @@ class Simulation:
         """
         accelerations = {body.name: np.zeros(2) for body in self.bodies}
 
-        for index_i, body_i in enumerate(self.bodies):
-            for body_j in self.bodies[index_i + 1:]:
+        for idx_i, body_i in enumerate(self.bodies):
+            for body_j in self.bodies[idx_i + 1:]:
                 r_ij = body_i.position - body_j.position
                 dist = np.linalg.norm(r_ij)
                 r_hat = r_ij / dist
@@ -213,8 +213,8 @@ class Simulation:
         Unique pairs only to avoid double-counting.
         """
         pe = 0.0
-        for index_i, body_i in enumerate(self.bodies):
-            for body_j in self.bodies[index_i + 1:]:
+        for idx_i, body_i in enumerate(self.bodies):
+            for body_j in self.bodies[idx_i + 1:]:
                 dist = np.linalg.norm(body_i.position - body_j.position)
                 pe += -self.G * body_i.mass * body_j.mass / dist
         return pe
@@ -248,7 +248,7 @@ class Simulation:
                 "start_time": float,    # self.time when tracking began
             }
 
-        Delta is normalized into (-pi, pi] to handle the atan2 wrap-around.
+        delta is normalised into (-pi, pi] to handle the atan2 wrap-around.
         Period is recorded when cumulative angle first reaches 2*pi.
         """
         sun = self.bodies[0]
@@ -289,6 +289,9 @@ class Simulation:
             "Earth":   1.0000,
             "Mars":    1.8809,
             "Jupiter": 11.862,
+            "Saturn":  29.457,
+            "Uranus":  84.011,
+            "Neptune": 164.79,
         }
 
         print(f"\n{'Body':<10} {'Simulated (yr)':>15} {'NASA (yr)':>12} {'Error (%)':>10}")

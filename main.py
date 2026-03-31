@@ -1,12 +1,16 @@
-__author__ = 'Siddhant Sharma'
+"""
+main.py
+-------
+Entry point. Runs the default solar system simulation with a matplotlib
+FuncAnimation. Experiments are handled in experiments.py.
+"""
 
 from pathlib import Path
 from collections import deque
 
 import numpy as np
 import matplotlib
-
-matplotlib.use("TkAgg")  # change to "Qt5Agg" if TkAgg is unavailable
+matplotlib.use("TkAgg")          # change to "Qt5Agg" if TkAgg is unavailable
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
@@ -16,18 +20,18 @@ from simulation import Simulation
 # Constants
 # ------------------------------------------------------------------
 
-EARTH_YEAR = 365.25 * 24 * 3600  # seconds
-SUN_MASS = 1.989e30  # kg
-DATA_FILE = Path(__file__).parent / "data" / "planets.json"
+EARTH_YEAR = 365.25 * 24 * 3600   # seconds
+SUN_MASS   = 1.989e30              # kg
+DATA_FILE  = Path(__file__).parent / "data" / "planets.json"
 
 # ------------------------------------------------------------------
 # Simulation settings
 # ------------------------------------------------------------------
 
-DT = EARTH_YEAR / 500  # time step (~8.77 hours)
-STEPS_PER_FRAME = 5  # sim steps advanced per animation frame
-TRAIL_LENGTH = 300  # number of past positions kept per body
-TOTAL_YEARS = 13  # run long enough to capture Jupiter (~12 yr)
+DT             = EARTH_YEAR / 1000   # time step (~8.77 hours)
+STEPS_PER_FRAME = 5                  # sim steps advanced per animation frame
+TRAIL_LENGTH   = 300                 # number of past positions kept per body
+TOTAL_YEARS    = 170                 # run long enough to capture Neptune (~164.8 yr)
 
 # ------------------------------------------------------------------
 # Main
@@ -40,7 +44,7 @@ def run_default_simulation():
     sim.initialise_bodies(sun_mass=SUN_MASS)
 
     total_steps = int(TOTAL_YEARS * EARTH_YEAR / DT)
-    energy_log_interval = 50  # log energy every N steps
+    energy_log_interval = 50    # log energy every N steps
 
     # --- Setup figure ---
     fig, ax = plt.subplots(figsize=(8, 8), facecolor="black")
@@ -49,7 +53,7 @@ def run_default_simulation():
 
     # Axis limits in AU — just beyond Jupiter's orbit (5.2 AU)
     AU = 1.496e11
-    lim = 6.0
+    lim = 32.0
     ax.set_xlim(-lim, lim)
     ax.set_ylim(-lim, lim)
     ax.set_xlabel("x (AU)", color="white")
@@ -65,9 +69,9 @@ def run_default_simulation():
     )
 
     # --- Create one dot + one trail line per body ---
-    dots = []
+    dots  = []
     lines = []
-    trails = []  # deque of (x_AU, y_AU) per body
+    trails = []   # deque of (x_AU, y_AU) per body
 
     for body in sim.bodies:
         # Dot — slightly larger for Sun
@@ -90,7 +94,7 @@ def run_default_simulation():
     # Track whether all periods have been found
     planet_names = [b.name for b in sim.bodies[1:] if not b.is_satellite]
     periods_done = False
-    step_counter = [0]  # mutable so update() can modify it
+    step_counter = [0]   # mutable so update() can modify it
 
     # --- Animation update function ---
     def update(frame):
@@ -132,7 +136,7 @@ def run_default_simulation():
     ani = animation.FuncAnimation(
         fig, update,
         frames=total_steps // STEPS_PER_FRAME,
-        interval=20,  # ms between frames (~50 fps target)
+        interval=20,        # ms between frames (~50 fps target)
         blit=True,
         repeat=False,
     )
@@ -148,5 +152,22 @@ def run_default_simulation():
     print(f"\nEnergy log written to output/energy_beeman.csv  ({len(sim.energy_log)} entries)")
 
 
+def run_experiment_1():
+    from experiments import run_experiment_1 as exp1
+    exp1(str(DATA_FILE), dt_fractions=[200, 500, 1000])
+
+
+def run_experiment_2():
+    from experiments import run_experiment_2 as exp2
+    exp2(str(DATA_FILE), dt=DT, num_years=5)
+
+
+RUN_MODE = "exp1"
+
 if __name__ == "__main__":
-    run_default_simulation()
+    if RUN_MODE == "exp1":
+        run_experiment_1()
+    elif RUN_MODE == "exp2":
+        run_experiment_2()
+    else:
+        run_default_simulation()

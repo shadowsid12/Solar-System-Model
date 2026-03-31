@@ -8,33 +8,51 @@
   "planets": [
     {
       "name": "Mercury",
-      "mass": 3.285e23,
+      "mass": 0.330103e24,
       "orbital_radius": 5.791e10,
       "colour": "gray"
     },
     {
       "name": "Venus",
-      "mass": 4.867e24,
+      "mass": 4.86731e24,
       "orbital_radius": 1.082e11,
       "colour": "orange"
     },
     {
       "name": "Earth",
-      "mass": 5.972e24,
+      "mass": 5.97217e24,
       "orbital_radius": 1.496e11,
       "colour": "blue"
     },
     {
       "name": "Mars",
-      "mass": 6.390e23,
+      "mass": 0.641691e24,
       "orbital_radius": 2.279e11,
       "colour": "red"
     },
     {
       "name": "Jupiter",
-      "mass": 1.898e27,
+      "mass": 1898.125e24,
       "orbital_radius": 7.786e11,
       "colour": "brown"
+    },
+    {
+      "name": "Saturn",
+      "mass": 568.317e+24,
+      "orbital_radius": 1432000000000,
+      "colour": "goldenrod"
+    },
+    {
+      "name": "Uranus",
+      "mass": 86.8099e+24,
+      "orbital_radius": 2867000000000,
+      "colour": "lightblue"
+    },
+    {
+      "name": "Neptune",
+      "mass": 102.4092e+24,
+      "orbital_radius": 4515000000000,
+      "colour": "royalblue"
     }
   ]
 }
