@@ -38,7 +38,7 @@ TOTAL_YEARS    = 170                 # run long enough to capture Neptune (~164.
 # ------------------------------------------------------------------
 
 def run_default_simulation():
-    # --- Setup simulation ---
+    # --- Setup the simulation ---
     sim = Simulation(dt=DT, integrator="beeman")
     sim.load_bodies_from_json(str(DATA_FILE))
     sim.initialise_bodies(sun_mass=SUN_MASS)
@@ -47,26 +47,30 @@ def run_default_simulation():
     energy_log_interval = 50    # log energy every N steps
 
     # --- Setup figure ---
-    fig, ax = plt.subplots(figsize=(8, 8), facecolor="black")
+    fig, ax = plt.subplots(figsize=(8, 8), facecolor="black") # subplot allows for more control over axes and figure
     ax.set_facecolor("black")
     ax.set_aspect("equal")
 
-    # Axis limits in AU — just beyond Jupiter's orbit (5.2 AU)
+    # Axis limits in AU — just beyond Neptune's orbit
     AU = 1.496e11
-    lim = 32.0
+    lim = 32.0 #Neptune's orbital radius is about 30AU
     ax.set_xlim(-lim, lim)
     ax.set_ylim(-lim, lim)
     ax.set_xlabel("x (AU)", color="white")
     ax.set_ylabel("y (AU)", color="white")
-    ax.tick_params(colors="white")
+    ax.tick_params(colors="white") # the little notches on the axis
     for spine in ax.spines.values():
-        spine.set_edgecolor("white")
+        spine.set_edgecolor("white") # axis spine is the main axis line itself
 
     # Time label
     time_text = ax.text(
         0.02, 0.96, "", transform=ax.transAxes,
         color="white", fontsize=10, va="top"
     )
+    """
+    transform = tansAxes fixes the text label to position on the axes, not figure
+    If I zoom out, the text label will stay in the same place because of this (placed in top right for now)
+    """
 
     # --- Create one dot + one trail line per body ---
     dots  = []
@@ -77,7 +81,7 @@ def run_default_simulation():
         # Dot — slightly larger for Sun
         size = 12 if body.name == "Sun" else 5
         dot, = ax.plot([], [], "o", color=body.colour, markersize=size,
-                       label=body.name, zorder=3)
+                       label=body.name, zorder=3) # zorder is basically vertical stacking - dots above trail above canvas
         dots.append(dot)
 
         # Trail line
@@ -87,6 +91,11 @@ def run_default_simulation():
 
         # Trail history
         trails.append(deque(maxlen=TRAIL_LENGTH))
+
+        """
+        deque is a data structure that stores a fixed-length collection of items. once maxlen is reached, any new entries will
+        replace the oldest item in the deque
+        """
 
     ax.legend(loc="upper right", fontsize=7, facecolor="#111111",
               labelcolor="white", framealpha=0.7)
@@ -162,12 +171,26 @@ def run_experiment_2():
     exp2(str(DATA_FILE), dt=DT, num_years=5)
 
 
-RUN_MODE = "exp1"
+def run_experiment_3():
+    from experiments import run_experiment_3 as exp3
+    import numpy as np
+    launch_speeds = list(np.linspace(2500, 3500, 25))  # m/s above Earth's velocity
+    exp3(str(DATA_FILE), launch_speeds)
+
+
+# Change RUN_MODE to select what to run:
+#   "sim"  — default solar system animation (Section 3)
+#   "exp1" — Experiment 1: Orbital Periods
+#   "exp2" — Experiment 2: Energy Conservation
+#   "exp3" — Experiment 3: Satellite to Mars
+RUN_MODE = "sim"
 
 if __name__ == "__main__":
     if RUN_MODE == "exp1":
         run_experiment_1()
     elif RUN_MODE == "exp2":
         run_experiment_2()
+    elif RUN_MODE == "exp3":
+        run_experiment_3()
     else:
         run_default_simulation()
