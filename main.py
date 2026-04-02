@@ -47,7 +47,7 @@ def run_default_simulation():
     energy_log_interval = 50    # log energy every N steps
 
     # --- Setup figure ---
-    fig, ax = plt.subplots(figsize=(8, 8), facecolor="black") # subplot allows for more control over axes and figure
+    fig, ax = plt.subplots(figsize=(10, 10), facecolor="black") # subplot allows for more control over axes and figure
     ax.set_facecolor("black")
     ax.set_aspect("equal")
 
@@ -162,20 +162,20 @@ def run_default_simulation():
 
 
 def run_experiment_1():
-    from experiments import run_experiment_1 as exp1
+    from experiment_1 import run_experiment_1 as exp1
     exp1(str(DATA_FILE), dt_fractions=[200, 500, 1000])
 
 
 def run_experiment_2():
-    from experiments import run_experiment_2 as exp2
+    from experiment_2 import run_experiment_2 as exp2
     exp2(str(DATA_FILE), dt=DT, num_years=5)
 
 
 def run_experiment_3():
-    from experiments import run_experiment_3 as exp3
+    from experiment_3 import run_experiment_3 as exp3
     import numpy as np
-    launch_speeds = list(np.linspace(2500, 3500, 25))  # m/s above Earth's velocity
-    exp3(str(DATA_FILE), launch_speeds)
+    launch_speeds = list(np.linspace(2000, 4500, 25))  # m/s above Earth's orbital velocity
+    exp3(str(DATA_FILE), launch_speeds, dt=DT)
 
 
 # Change RUN_MODE to select what to run:
