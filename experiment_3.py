@@ -83,7 +83,7 @@ def add_satellite(sim: Simulation, extra_speed: float) -> Body:
     return satellite
 
 
-def run_experiment_3(data_file: str, launch_speeds: list[float], dt: int) -> None:
+def run_experiment_3(data_file: str, launch_speeds: list[float], dt: float) -> None:
     """
     Experiment 3: Satellite to Mars
     --------------------------------

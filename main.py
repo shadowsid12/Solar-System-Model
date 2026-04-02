@@ -8,7 +8,6 @@ FuncAnimation. Experiments are handled in experiments.py.
 from pathlib import Path
 from collections import deque
 
-import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")          # change to "Qt5Agg" if TkAgg is unavailable
 import matplotlib.pyplot as plt
@@ -29,7 +28,7 @@ DATA_FILE  = Path(__file__).parent / "data" / "planets.json"
 # ------------------------------------------------------------------
 
 DT             = EARTH_YEAR / 1000   # time step (~8.77 hours)
-STEPS_PER_FRAME = 5                  # sim steps advanced per animation frame
+STEPS_PER_FRAME = 10                  # sim steps advanced per animation frame
 TRAIL_LENGTH   = 300                 # number of past positions kept per body
 TOTAL_YEARS    = 170                 # run long enough to capture Neptune (~164.8 yr)
 
@@ -81,7 +80,7 @@ def run_default_simulation():
         # Dot — slightly larger for Sun
         size = 12 if body.name == "Sun" else 5
         dot, = ax.plot([], [], "o", color=body.colour, markersize=size,
-                       label=body.name, zorder=3) # zorder is basically vertical stacking - dots above trail above canvas
+                       label=body.name, zorder=3) # z-order is basically vertical stacking - dots are above trail is above canvas
         dots.append(dot)
 
         # Trail line
@@ -93,7 +92,7 @@ def run_default_simulation():
         trails.append(deque(maxlen=TRAIL_LENGTH))
 
         """
-        deque is a data structure that stores a fixed-length collection of items. once maxlen is reached, any new entries will
+        deque is a data structure that stores a fixed-length collection of items. once max_len is reached, any new entries will
         replace the oldest item in the deque
         """
 
@@ -102,8 +101,8 @@ def run_default_simulation():
 
     # Track whether all periods have been found
     planet_names = [b.name for b in sim.bodies[1:] if not b.is_satellite]
-    periods_done = False
-    step_counter = [0]   # mutable so update() can modify it
+    periods_done: bool = False
+    step_counter: list[int] = [0]   # mutable so update() can modify it
 
     # --- Animation update function ---
     def update(frame):
@@ -125,9 +124,9 @@ def run_default_simulation():
             sim.print_periods()
 
         # Update dots and trails
-        for i, body in enumerate(sim.bodies):
-            x_au = body.position[0] / AU
-            y_au = body.position[1] / AU
+        for i, b in enumerate(sim.bodies):
+            x_au = b.position[0] / AU
+            y_au = b.position[1] / AU
 
             dots[i].set_data([x_au], [y_au])
 
@@ -179,7 +178,7 @@ def run_experiment_3():
 
 
 # Change RUN_MODE to select what to run:
-#   "sim"  — default solar system animation (Section 3)
+#   "sim"  — default solar system animation
 #   "exp1" — Experiment 1: Orbital Periods
 #   "exp2" — Experiment 2: Energy Conservation
 #   "exp3" — Experiment 3: Satellite to Mars
