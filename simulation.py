@@ -5,22 +5,40 @@ from bodies import Body
 
 class Simulation:
     """
-    Manages the solar system many-body simulation.
+    Manages a gravitational N-body simulation of the solar system.
 
-    Responsibilities
-    ----------------
-    - Load bodies from a JSON file
-    - Initialise positions and velocities
-    - Step the simulation forward using a chosen integrator
-    - Compute accelerations (gravitational many-body)
-    - Detect orbital period completion
-    - Track and write total system energy to file
+    This class handles the initialisation, physical integration, and data logging
+    for a system of celestial bodies. It supports multiple integration methods
+    including Beeman, Euler-Cromer, and Direct Euler, and provides utilities
+    for energy conservation tracking and orbital period detection.
+
+    Attributes:
+        G (float): Gravitational constant (6.6743e-11 m^3 kg^-1 s^-2).
+        INTEGRATORS (tuple): Supported numerical integration method names.
+        dt (float): Simulation time step in seconds.
+        integrator (str): The active integration algorithm.
+        bodies (list[Body]): List of Body objects in the simulation.
+        time (float): Elapsed simulation time in seconds.
+        energy_log (list): Historical record of (time, total_energy) tuples.
+        period_tracker (dict): Internal state for tracking cumulative orbital angles.
+        periods (dict): Recorded orbital periods for each body in seconds.
     """
 
     G = 6.6743e-11
     INTEGRATORS = ("beeman", "euler_cromer", "direct_euler")
 
     def __init__(self, dt: float, integrator: str = "beeman"):
+        """
+        Initializes the Simulation instance.
+
+        Args:
+            dt (float): Time step for each integration increment.
+            integrator (str): Numerical method to use. Must be one of
+                        ('beeman', 'euler_cromer', 'direct_euler'). Defaults to "beeman".
+
+        Raises:
+            ValueError: If the provided integrator is not in self.INTEGRATORS.
+        """
         if integrator not in self.INTEGRATORS:
             raise ValueError(f"Invalid integrator: {integrator}")
 
@@ -38,13 +56,11 @@ class Simulation:
     # ------------------------------------------------------------------
 
     def load_bodies_from_json(self, filepath: str) -> None:
-        """Read planet data from a JSON file and populate self.bodies.
+        """
+        Parses a JSON configuration file to populate the simulation bodies.
 
         Args:
-            filepath (str): Path to the JSON file.
-
-        Returns:
-            None
+            filepath (str): Path to the JSON file containing 'sun' and 'planets' keys.
         """
         with open(filepath, "r") as f:
             data = json.load(f)
@@ -68,16 +84,26 @@ class Simulation:
             ))
 
     def add_body(self, body: Body) -> None:
-        """Manually add a Body (used for satellites). Caller must set position and velocity."""
+        """
+        Appends a Body object to the simulation manually.
+
+        Args:
+            body (Body): The body instance to add. Position and velocity
+                should be pre-configured if not using initialise_bodies.
+        """
         self.bodies.append(body)
 
     def initialise_bodies(self, sun_mass: float) -> None:
         """
-        Set initial positions and velocities for all bodies.
+        Sets initial kinematic states for all bodies and adjusts for zero net momentum.
 
-        Sun     : origin, zero velocity
-        Planets : positive x-axis at orbital_radius, Keplerian circular speed in +y
-                  v_circ = sqrt(G * M_sun / r)
+        Initializes the Sun at the origin and planets at their respective orbital
+        radii with Keplerian circular velocities. To prevent system drift, the
+        Center of Mass (CoM) velocity is calculated and subtracted from all bodies,
+        ensuring the total momentum of the system is zero.
+
+        Args:
+            sun_mass (float): Mass of the central star in kilograms.
         """
         # Load sun
         sun = self.bodies[0]
@@ -94,7 +120,7 @@ class Simulation:
             body.velocity = np.array([0.0, v_circ])
 
         # Zero the center-of-mass velocity so the Sun doesn't drift.
-        """
+        '''
         I initialise all planets moving in the +y direction, and the Sun sitting still at the origin.
         But the system as a whole now has a net momentum since all that +y motion adds up.
         In a real isolated system, the centre of mass must move at constant velocity forever
@@ -107,27 +133,30 @@ class Simulation:
 
         The fix is to make the total momentum of the system exactly zero, so the centre of mass stays fixed at the origin forever.
         I do that by computing the velocity of the centre of mass:
-        """
+        '''
+
         total_momentum = sum(b.mass * b.velocity for b in self.bodies)
         total_mass = sum(b.mass for b in self.bodies)
         v_com = total_momentum / total_mass
 
-        """
+        '''
         Now if I subtract the center of mass velocity from all velocities, the system has zero net momentum. i.e.
         the sun doesn't seem to 'drift' away anymore.
         
         However, this means that the whole solar system will start moving towards -y, but on the scale of the plot
         (which is larger than Neptune's orbital radius), this drift is not noticeable. The physics remains unaffected,
         and that's what matters. Relative to the sun, the velocities of each planet are unchanged.
-        """
+        '''
+
         for body in self.bodies:
             body.velocity -= v_com
 
-        """
+        '''
         Setting prev_acc = acc for t=0, to prevent running into unnecessary errors.
         This is only relevant for the Beeman method, which is the only one that uses prev_acc.
         For t>0, prev_acc is updated in the step() method.
-        """
+        '''
+
         accelerations = self.compute_accelerations()
         for body in self.bodies:
             body.acceleration = accelerations[body.name]
@@ -139,10 +168,18 @@ class Simulation:
 
     def compute_accelerations(self) -> dict[str, np.ndarray]:
         """
-        Gravitational acceleration on every body due to all others.
-        Fully vectorised using numpy This is because for longer simulations, looping over each pair is extremely slow, comparded
-        to this method
+        Calculates the instantaneous gravitational acceleration for all bodies.
 
+        Uses a vectorised approach to compute pairwise interactions because for longer simulations, looping over each pair
+        is extremely slow, compared to this method. For N bodies,
+        displacements are calculated in an (N, N, 2) matrix. Diagonal terms
+        (self-interaction) are masked to prevent division by zero.
+
+        Returns:
+            dict[str, np.ndarray]: Mapping of body names to their 2D acceleration vectors (m/s^2).
+        """
+
+        """
         For each unique pair (i, j):
             acc_on_j = G * m_i / |r_ij|^2 * r_hat_ij
             acc_on_i = G * m_j / |r_ij|^2 * (-r_hat_ij)
@@ -303,13 +340,21 @@ class Simulation:
     # useful to help debug the simulation, as conservation of energy could be checked.
 
     def total_kinetic_energy(self) -> float:
-        """Sum of (1/2) m v^2 over all bodies."""
+        """
+        Calculates the total kinetic energy of all bodies in the system:
+        KE = 1/2 * m * v^2
+
+        Returns:
+            float: Total kinetic energy in Joules.
+        """
         return sum(0.5 * b.mass * float(np.dot(b.velocity, b.velocity)) for b in self.bodies)
 
     def total_potential_energy(self) -> float:
         """
-        U = -G * sum_{i<j} m_i * m_j / |r_ij|
-        Unique pairs only to avoid double-counting. Same logic as the acceleration calculation.
+        Calculates the total gravitational potential energy of the system.
+        Computes the sum of -G*m1*m2/r for all unique pairs to avoid double-counting.
+        Returns:
+            float: Total potential energy in Joules.
         """
         pe = 0.0
         for idx_i, body_i in enumerate(self.bodies):
@@ -319,8 +364,14 @@ class Simulation:
         return pe
 
     def total_energy(self) -> float:
-        """Total energy of the system."""
+        """
+        Exports the energy log to a CSV file.
+
+        Args:
+            filepath (str): Destination path for the CSV output.
+        """
         return self.total_kinetic_energy() + self.total_potential_energy()
+
 
     def log_energy(self) -> None:
         """Append (current_time, total_energy) to self.energy_log."""
@@ -339,20 +390,14 @@ class Simulation:
 
     def check_periods(self) -> None:
         """
-        Detect when a body completes one full orbit using cumulative angle tracking.
+        Monitors cumulative angular displacement to detect completed orbits.
 
-        Each non-Sun, non-satellite body gets an entry in self.period_tracker:
-            {
-                "prev_angle": float,    # atan2 angle at previous time step
-                "cumulative": float,    # total angle accumulated (radians)
-                "start_time": float,    # self.time when tracking began
-            }
-
-        delta is normalised into (-pi, pi] to handle the atan2 wrap-around.
-        Period is recorded when cumulative angle first reaches 2*pi.
+        Uses atan2 to track the angle of each body relative to the central Sun.
+        Changes in angle are normalised to the range (-pi, pi] to handle
+        quadrant wrapping. A period is recorded when the cumulative angle
+        reaches 2*pi.
         """
-        # Note: atan2() returns a value in the range -pi to pi radians,
-        # whereas atan() returns from -pi/2 to pi/2.
+        # Note: atan2() returns a value in the range -pi to pi radians, whereas atan() returns from -pi/2 to pi/2.
 
         sun = self.bodies[0]
 
@@ -400,7 +445,12 @@ class Simulation:
                 self.periods[body.name] = self.time - tracker["start_time"]
 
     def print_periods(self, earth_year_seconds: float = 365.25 * 24 * 3600) -> None:
-        """Print simulated periods vs NASA reference values."""
+        """
+        Displays a comparison between simulated periods and NASA reference values.
+
+        Args:
+            earth_year_seconds (float): Conversion factor for seconds to Earth years.
+        """
         # More precise NASA reference periods (sidereal, in Earth years)
         nasa = {
             "Mercury": 0.2408467,
