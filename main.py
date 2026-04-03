@@ -166,8 +166,8 @@ def run_experiment_3():
     from experiment_3 import run_experiment_3 as exp3, HOHMANN_DV
     import numpy as np
     # Search centred on the Hohmann delta-v from L1 to Mars (~3475 m/s)
-    launch_speeds = list(np.linspace(HOHMANN_DV * 0.7, HOHMANN_DV * 1.6, 25))
-    angles        = list(np.linspace(0, 30, 7))   # degrees from Earth's prograde
+    launch_speeds = list(np.linspace(HOHMANN_DV * 0.7, HOHMANN_DV * 1.6, 30))
+    angles        = list(np.linspace(0, 60, 21))   # degrees from Earth's prograde
     exp3(str(DATA_FILE), launch_speeds, angles, dt=DT)
 
 

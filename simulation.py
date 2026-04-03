@@ -140,8 +140,8 @@ class Simulation:
     def compute_accelerations(self) -> dict[str, np.ndarray]:
         """
         Gravitational acceleration on every body due to all others.
-        Fully vectorised using numpy broadcasting — no Python loops over pairs.
-        This gives a ~9x speedup over the equivalent Python pair loop.
+        Fully vectorised using numpy This is because for longer simulations, looping over each pair is extremely slow, comparded
+        to this method
 
         For each unique pair (i, j):
             acc_on_j = G * m_i / |r_ij|^2 * r_hat_ij
@@ -152,13 +152,22 @@ class Simulation:
 
         Implementation
         --------------
-        positions : (N, 2) array of all body positions
-        masses    : (N,)   array of all body masses
+        positions: (N, 2) array of all body positions for N bodies
+                   each row is for 1 body, and the 2 columns are x and y
+                   => positions[i][1] = y coordinate of body i
 
-        diff[i, j] = positions[i] - positions[j]   shape (N, N, 2)
+        distances: (N, N, 2) array of Euclidean distances between each pair
+                    here, (i,j,1) is the x-component of the distance vector between bodies i and j
+                    the order of i and j doesn't matter as for displacement, the distances will be squared for x and y distance.
+                    To ensure the force is attractive, r_ji is the vector pointing from j to i, so the force is negative.
+                    the diagonal entries are set to 1 to avoid division-by-zero (self-interaction terms are zeroed out separately)
+
+        masses: (N,) array of all body masses [1d array, so a vector]
+
+        diff[i, j] = positions[i] - positions[j], shape (N, N, 2)
             The displacement vector FROM body j TO body i.
 
-        dist[i, j] = |diff[i, j]|                  shape (N, N)
+        dist[i, j] = |diff[i, j]|, shape (N, N)
             Euclidean distance between each pair. Diagonal is set to 1
             to avoid division-by-zero (self-interaction terms are zeroed
             out separately via the mass_matrix).
@@ -179,22 +188,37 @@ class Simulation:
 
         # diff[i, j] = position[i] - position[j]  — vector from j to i
         diff = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]  # (N, N, 2)
+        """
+        np.newaxis creates a new axis in the positions array, so that diff[i, j] is a 3D array of shape (N, N, 2)
+        (essential its (N,1,2) - (1,N,2) = (N,N,2). np will stretch the newaxis to match length.)
+        this means that diff[i,j] is a vector pointing from body j to body i. Note that newaxis creates a pseudo-index,
+        no values are stored.
+        """
+
 
         # Euclidean distance for each pair
         dist = np.linalg.norm(diff, axis=2)   # (N, N)
 
-        # Set diagonal to 1 to avoid division-by-zero on self terms.
-        # These entries are multiplied by zero via mass_matrix so they
+        # Set diagonal to 1 to avoid division-by-zero on self-interaction terms.
+        # These entries are multiplied by zero via the mass_matrix so they
         # never contribute to the final accelerations.
         np.fill_diagonal(dist, 1.0)
 
         # mass_matrix[i, j] = mass of body j, zero on diagonal (no self-force)
         mass_matrix = np.where(np.eye(N, dtype=bool), 0.0, masses[np.newaxis, :])
+        """
+        np.eye makes a identity matrix where bool means diagonal is True.
+        np.where is used so that we can then set those diagonals as 0.0 (to prevent self-interaction terms)
+        """
 
         # acc_matrix[i, j] = G * m_j / |r_ij|^3 * diff[i,j]
         # Dividing by dist^3 (not dist^2) because diff already carries one
         # factor of dist that would otherwise be in r_hat = diff / dist.
         coeff = self.G * mass_matrix / dist**3   # (N, N)
+        """
+        Essentially calculates the force on body j due to body i
+        This will be multiplied by the distance vector diff[i,j] to get the acceleration on body i.
+        """
 
         # Sum over j to get net acceleration on each body i.
         # Gravity is attractive: acceleration on i points FROM i TOWARD j,

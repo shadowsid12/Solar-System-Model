@@ -3,17 +3,17 @@ experiment_3.py
 ---------------
 Experiment 3: Satellite to Mars
 
-The satellite is parked at the Sun-Earth L1 Lagrange point — the unstable
+The satellite is parked at the Sun-Earth L2 Lagrange point — the unstable
 equilibrium between Sun and Earth at ~1.496 million km from Earth toward the
-Sun. L1 is where JWST sits and is a natural staging point for interplanetary
-missions. The satellite is assumed to already be at L1 with the velocity
+Sun. L2 is where JWST sits and is a natural staging point for interplanetary
+missions. The satellite is assumed to already be at L2 with the velocity
 required to remain there (co-rotating with Earth). A delta-v burn then
 sends it toward Mars.
 
 Parameter sweep
 ---------------
-- delta_v   : speed added at L1 (m/s); searched around the Hohmann
-              transfer value L1 → Mars (~3475 m/s).
+- delta_v   : speed added at L2 (m/s); searched around the Hohmann
+              transfer value L2 → Mars (~3475 m/s).
 - theta_deg : direction of the burn in degrees from Earth's prograde
               direction (tangential to Earth's orbit):
                 theta = 0   → purely prograde
@@ -49,49 +49,42 @@ EARTH_MASS = 5.972e24
 G          = 6.6743e-11
 
 # ------------------------------------------------------------------
-# L1 Lagrange point geometry
+# L2 Lagrange point geometry
 # ------------------------------------------------------------------
 # Hill sphere approximation:
-#     r_L1 = R * (M_earth / 3*M_sun)^(1/3)  ← distance from Earth
+#     r_L2 = R * (M_earth / 3*M_sun)^(1/3)  ← distance from Earth
 #
 # Parking speed (heliocentric, co-rotating with Earth):
-#     v_L1 = omega_earth * (R - r_L1)
+#     v_L2 = omega_earth * (R + r_L2)
 #
-# This is ~301 m/s LESS than Earth's orbital speed. At L1 the satellite
-# is slightly closer to the Sun, so Keplerian speed would be higher —
-# but Earth's gravity pulls it back, allowing it to orbit more slowly
-# and keep up with Earth's angular velocity.
+# At L2 the satellite is further from the Sun, so Keplerian speed
+# would be lower — but Earth's gravity pulls it forward, allowing
+# it to orbit faster and keep up with Earth's angular velocity.
 
 R_EARTH_SUN  = AU
-R_L1_EARTH   = R_EARTH_SUN * (EARTH_MASS / (3 * SUN_MASS))**(1/3)  # ~1.496e9 m
-R_L1_SUN     = R_EARTH_SUN - R_L1_EARTH
+R_L2_EARTH   = R_EARTH_SUN * (EARTH_MASS / (3 * SUN_MASS))**(1/3)  # ~1.496e9 m
+R_L2_SUN     = R_EARTH_SUN + R_L2_EARTH
 OMEGA_EARTH  = 2 * np.pi / EARTH_YEAR
-V_L1         = OMEGA_EARTH * R_L1_SUN   # ~29488 m/s
+V_L2         = OMEGA_EARTH * R_L2_SUN   # ~30283 m/s
 
-# Hohmann delta-v from L1 to Mars (theoretical minimum energy single burn)
-_V_TRANSFER  = np.sqrt(G * SUN_MASS * (2/R_L1_SUN - 1/((R_L1_SUN + 2.279e11)/2)))
-HOHMANN_DV   = _V_TRANSFER - V_L1       # ~3475 m/s
+# Hohmann delta-v from L2 to Mars
+_V_TRANSFER  = np.sqrt(G * SUN_MASS * (2/R_L2_SUN - 1/((R_L2_SUN + 2.279e11)/2)))
+HOHMANN_DV   = _V_TRANSFER - V_L2       # ~2681 m/s
 
 # ------------------------------------------------------------------
 # Mission parameters
 # ------------------------------------------------------------------
 
-PERSEVERANCE_JOURNEY_DAYS = 203.0    # Jul 30 2020 → Feb 18 2021
-PAYLOAD_MASS              = 2000.0   # kg — dry mass (after burn)
-V_EXHAUST                 = 4400.0   # m/s (~Isp 450 s, chemical)
+PERSEVERANCE_JOURNEY_DAYS = 203.0
+PAYLOAD_MASS              = 2000.0
+V_EXHAUST                 = 4400.0
 
 # ------------------------------------------------------------------
 # Return-to-Earth thresholds
 # ------------------------------------------------------------------
-# Both conditions must hold simultaneously, after the Mars fly-past:
-#   1. Distance to Earth < 0.01 AU (≈ Earth Hill sphere)
-#   2. Angular separation from Earth < 5 deg
-# Condition 2 prevents false positives from Earth orbiting back to
-# a similar radius while the satellite is on the opposite side.
 
 EARTH_RETURN_THRESHOLD_AU = 0.01
 EARTH_RETURN_ANGLE_DEG    = 5.0
-
 
 # ------------------------------------------------------------------
 # Rocket equation
@@ -99,38 +92,37 @@ EARTH_RETURN_ANGLE_DEG    = 5.0
 
 def fuel_mass(delta_v: float) -> float:
     """
-    Tsiolkovsky rocket equation — single impulsive burn:
+    Tsiolkovsky rocket equation for single burn:
         m_fuel = m_dry * (exp(dv / v_exhaust) - 1)
         m_wet  = m_dry + m_fuel
     """
     return PAYLOAD_MASS * (np.exp(delta_v / V_EXHAUST) - 1)
 
-
 # ------------------------------------------------------------------
-# Satellite placement at L1
+# Satellite placement at L2
 # ------------------------------------------------------------------
 
 def add_satellite(sim: Simulation, delta_v: float, theta_deg: float) -> Body:
     """
-    Place the satellite at L1 and apply a delta-v burn.
+    Place the satellite at L2 and apply a delta-v burn.
 
-    L1 position
+    L2 position
     -----------
-    Along the Sun-Earth line, on the Sun side of Earth:
-        pos_L1 = earth.position - earth_rhat * R_L1_EARTH
+    Along the Sun-Earth line, on the far side of Earth:
+        pos_L2 = earth.position + earth_rhat * R_L2_EARTH
     where earth_rhat = earth.position / |earth.position| (Sun → Earth).
 
-    L1 parking velocity
+    L2 parking velocity
     -------------------
     Heliocentric, prograde (same direction as Earth's orbit):
-        vel_L1 = V_L1 * earth_vhat
-    where V_L1 = omega_earth * R_L1_SUN ≈ 29488 m/s.
+        vel_L2 = V_L2 * earth_vhat
+    where V_L2 = omega_earth * R_L2_SUN ≈ 30283 m/s.
 
     Burn
     ----
     delta_v is added in direction theta_deg from Earth's prograde:
         burn_dir = cos(θ)*earth_vhat + sin(θ)*earth_rhat
-        v_sat = vel_L1 + delta_v * burn_dir
+        v_sat = vel_L2 + delta_v * burn_dir
 
     Parameters
     ----------
@@ -142,8 +134,8 @@ def add_satellite(sim: Simulation, delta_v: float, theta_deg: float) -> Body:
     earth_rhat = earth.position / np.linalg.norm(earth.position)
     earth_vhat = earth.velocity / np.linalg.norm(earth.velocity)
 
-    pos_L1   = earth.position - earth_rhat * R_L1_EARTH
-    vel_L1   = V_L1 * earth_vhat
+    pos_L2   = earth.position + earth_rhat * R_L2_EARTH
+    vel_L2   = V_L2 * earth_vhat
 
     theta_rad = np.radians(theta_deg)
     burn_dir  = np.cos(theta_rad) * earth_vhat + np.sin(theta_rad) * earth_rhat
@@ -155,8 +147,8 @@ def add_satellite(sim: Simulation, delta_v: float, theta_deg: float) -> Body:
         colour="white",
         is_satellite=True,
     )
-    satellite.position = pos_L1
-    satellite.velocity = vel_L1 + delta_v * burn_dir
+    satellite.position = pos_L2
+    satellite.velocity = vel_L2 + delta_v * burn_dir
 
     sim.add_body(satellite)
     accels = sim.compute_accelerations()
@@ -170,15 +162,15 @@ def add_satellite(sim: Simulation, delta_v: float, theta_deg: float) -> Body:
 # Weighted trajectory selector
 # ------------------------------------------------------------------
 
-def _select_best(candidates: list[dict]) -> dict:
+def select_best(candidates: list[dict]) -> dict:
     """
     Weighted normalised score (lower = better):
         score = 0.5*(d/d_max) + 0.3*(t/t_max) + 0.2*(f/f_max)
 
     Weights:
         0.5 — closest Mars approach (primary mission goal)
-        0.3 — journey time (shorter = less operational risk)
-        0.2 — fuel mass (less = cheaper; correlated with time so down-weighted)
+        0.35 — journey time (shorter = less operational risk)
+        0.15 — fuel mass (less = cheaper; correlated with time so down-weighted)
     """
     d_max = max(r["min_dist_au"]  for r in candidates)
     t_max = max(r["journey_days"] for r in candidates)
@@ -186,8 +178,8 @@ def _select_best(candidates: list[dict]) -> dict:
 
     def score(r):
         return (0.5 * r["min_dist_au"]  / d_max
-              + 0.3 * r["journey_days"] / t_max
-              + 0.2 * r["fuel_kg"]      / f_max)
+              + 0.35 * r["journey_days"] / t_max
+              + 0.15 * r["fuel_kg"]      / f_max)
 
     best = min(candidates, key=score)
     best["score"] = score(best)
@@ -201,13 +193,13 @@ def _select_best(candidates: list[dict]) -> dict:
 def run_experiment_3(data_file: str, launch_speeds: list[float],
                      angles: list[float], dt: float) -> None:
     """
-    Sweep delta-v and burn angle from L1. Records closest Mars approach,
+    Sweep delta-v and burn angle from L2. Records closest Mars approach,
     journey time, return status, and fuel for each combination.
 
     Parameters
     ----------
     data_file    : path to planets.json
-    launch_speeds: delta-v values at L1 (m/s)
+    launch_speeds: delta-v values at L2 (m/s)
     angles       : burn angles in degrees from Earth's prograde direction
     dt           : time step (seconds)
     """
@@ -219,10 +211,10 @@ def run_experiment_3(data_file: str, launch_speeds: list[float],
 
     rows = []
 
-    print(f"L1 distance from Earth:   {R_L1_EARTH/1e6:.3f} million km")
-    print(f"L1 parking speed:         {V_L1:.2f} m/s")
+    print(f"L2 distance from Earth:   {R_L2_EARTH/1e6:.3f} million km")
+    print(f"L2 parking speed:         {V_L2:.2f} m/s")
     print(f"Earth orbital speed:      {np.sqrt(G*SUN_MASS/R_EARTH_SUN):.2f} m/s")
-    print(f"Hohmann delta-v L1→Mars:  {HOHMANN_DV:.1f} m/s")
+    print(f"Hohmann delta-v L2→Mars:  {HOHMANN_DV:.1f} m/s")
     print(f"\nSweep: {len(launch_speeds)} x {len(angles)} = "
           f"{len(launch_speeds)*len(angles)} runs")
     print(f"{'dv (m/s)':>10} {'Angle':>8} {'Min dist (AU)':>14} "
@@ -292,7 +284,7 @@ def run_experiment_3(data_file: str, launch_speeds: list[float],
         print("\nNo trajectories returned. Selecting best overall.")
         returning = rows
 
-    best = _select_best(returning)
+    best = select_best(returning)
 
     print(f"\nBest trajectory:")
     print(f"  Delta-v:     {best['delta_v_ms']:.1f} m/s  (Hohmann ref: {HOHMANN_DV:.1f} m/s)")
@@ -302,9 +294,9 @@ def run_experiment_3(data_file: str, launch_speeds: list[float],
     print(f"  Fuel:        {best['fuel_kg']:.1f} kg  (wet mass: {PAYLOAD_MASS+best['fuel_kg']:.1f} kg)")
     print(f"  Score:       {best['score']:.4f}  (dist=0.5, time=0.3, fuel=0.2)")
 
-    _plot_trajectory(best, dt)
-    _plot_time_vs_fuel(returning, best)
-    _animate_trajectory(data_file, best["delta_v_ms"], best["angle_deg"],
+    plot_trajectory(best, dt)
+    plot_time_vs_fuel(returning, best)
+    animate_trajectory(data_file, best["delta_v_ms"], best["angle_deg"],
                         dt, best["journey_days"], best["min_dist_au"])
 
 
@@ -312,7 +304,7 @@ def run_experiment_3(data_file: str, launch_speeds: list[float],
 # Visualisation
 # ------------------------------------------------------------------
 
-def _plot_trajectory(best: dict, dt: float) -> None:
+def plot_trajectory(best: dict, dt: float) -> None:
     fig, ax = plt.subplots(figsize=(8, 8), facecolor="black")
     ax.set_facecolor("black")
     ax.set_aspect("equal")
@@ -334,8 +326,8 @@ def _plot_trajectory(best: dict, dt: float) -> None:
 
     earth      = next(b for b in sim.bodies if b.name == "Earth")
     earth_rhat = earth.position / np.linalg.norm(earth.position)
-    l1_pos     = (earth.position - earth_rhat * R_L1_EARTH) / AU
-    ax.plot(*l1_pos, "D", color="cyan", markersize=7, zorder=6, label="L1 (launch)")
+    l2_pos     = (earth.position - earth_rhat * R_L2_EARTH) / AU
+    ax.plot(*l2_pos, "D", color="cyan", markersize=7, zorder=6, label="L2 (launch)")
 
     traj = np.array(best["traj"])
     ax.plot(traj[:, 0], traj[:, 1], color="white", linewidth=0.8,
@@ -353,12 +345,12 @@ def _plot_trajectory(best: dict, dt: float) -> None:
     for sp in ax.spines.values():
         sp.set_edgecolor("white")
     ax.legend(fontsize=8, facecolor="#111111", labelcolor="white")
-    ax.set_title("Experiment 3: L1 → Mars (best trajectory)", color="white")
+    ax.set_title("Experiment 3: L2 → Mars (best trajectory)", color="white")
     plt.tight_layout()
     plt.show()
 
 
-def _plot_time_vs_fuel(returning: list[dict], best: dict) -> None:
+def plot_time_vs_fuel(returning: list[dict], best: dict) -> None:
     times  = np.array([r["journey_days"] for r in returning])
     fuels  = np.array([r["fuel_kg"]      for r in returning])
     angles = np.array([r["angle_deg"]    for r in returning])
@@ -388,11 +380,11 @@ def _plot_time_vs_fuel(returning: list[dict], best: dict) -> None:
     axes[1].set_title("Closest approach vs Fuel (returning trajectories)")
     axes[1].legend(fontsize=8)
 
-    plt.suptitle("Experiment 3: L1 Launch — Trade-off Analysis", fontsize=12)
+    plt.suptitle("Experiment 3: L2 Launch — Trade-off Analysis", fontsize=12)
     plt.show()
 
 
-def _animate_trajectory(data_file: str, delta_v: float, theta_deg: float,
+def animate_trajectory(data_file: str, delta_v: float, theta_deg: float,
                          dt: float, journey_days: float, min_dist_au: float) -> None:
     MAX_YEARS   = 2
     total_steps = int(MAX_YEARS * EARTH_YEAR / dt)
@@ -429,7 +421,7 @@ def _animate_trajectory(data_file: str, delta_v: float, theta_deg: float,
     ax.tick_params(colors="white")
     for sp in ax.spines.values():
         sp.set_edgecolor("white")
-    ax.set_title(f"L1 → Mars  Δv={delta_v:.0f} m/s, θ={theta_deg:.0f}°", color="white")
+    ax.set_title(f"L2 → Mars  Δv={delta_v:.0f} m/s, θ={theta_deg:.0f}°", color="white")
 
     ring_t = np.linspace(0, 2 * np.pi, 300)
     for name, r_au in body_orbit_au.items():
@@ -438,7 +430,7 @@ def _animate_trajectory(data_file: str, delta_v: float, theta_deg: float,
 
     ax.plot(0, 0, "o", color="yellow", markersize=10, zorder=5)
     ax.plot(history["Satellite"][0, 0], history["Satellite"][0, 1],
-            "D", color="cyan", markersize=7, label="L1 launch", zorder=6)
+            "D", color="cyan", markersize=7, label="L2 launch", zorder=6)
 
     sat_trail, = ax.plot([], [], color="white", linewidth=0.9, alpha=0.9, zorder=3)
     sat_dot,   = ax.plot([], [], "o", color="cyan", markersize=6, zorder=4)
