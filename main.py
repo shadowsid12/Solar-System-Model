@@ -100,7 +100,7 @@ def run_default_simulation():
     def update(frame):
         nonlocal periods_done
 
-        for _ in range(STEPS_PER_FRAME):
+        for i in range(STEPS_PER_FRAME):
             if step_counter[0] >= total_steps:
                 return dots + lines + [time_text]
 
@@ -116,9 +116,9 @@ def run_default_simulation():
             sim.print_periods()
 
         # Update dots and trails
-        for i, body in enumerate(sim.bodies):
-            x_au = body.position[0] / AU
-            y_au = body.position[1] / AU
+        for i, b in enumerate(sim.bodies):
+            x_au = b.position[0] / AU
+            y_au = b.position[1] / AU
 
             dots[i].set_data([x_au], [y_au])
 

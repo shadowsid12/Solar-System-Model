@@ -236,7 +236,7 @@ def run_experiment_3(data_file: str, launch_speeds: list[float],
             returned       = False
             traj           = []
 
-            for _ in range(total_steps):
+            for i in range(total_steps):
                 sim.step()
                 sat_pos    = satellite.position.copy()
                 dist_mars  = np.linalg.norm(sat_pos - mars.position)
