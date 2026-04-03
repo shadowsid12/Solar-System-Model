@@ -1,13 +1,14 @@
 """
 main.py
 -------
-Entry point. Runs the default solar system simulation with a matplotlib FuncAnimation.
-Experiments are handled in in their own files.
+Entry point. Runs the default solar system simulation with a matplotlib
+FuncAnimation. Experiments are handled in experiments.py.
 """
 
 from pathlib import Path
 from collections import deque
 
+import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")          # change to "Qt5Agg" if TkAgg is unavailable
 import matplotlib.pyplot as plt
@@ -28,7 +29,7 @@ DATA_FILE  = Path(__file__).parent / "data" / "planets.json"
 # ------------------------------------------------------------------
 
 DT             = EARTH_YEAR / 1000   # time step (~8.77 hours)
-STEPS_PER_FRAME = 10                  # sim steps advanced per animation frame
+STEPS_PER_FRAME = 5                  # sim steps advanced per animation frame
 TRAIL_LENGTH   = 300                 # number of past positions kept per body
 TOTAL_YEARS    = 170                 # run long enough to capture Neptune (~164.8 yr)
 
@@ -37,7 +38,7 @@ TOTAL_YEARS    = 170                 # run long enough to capture Neptune (~164.
 # ------------------------------------------------------------------
 
 def run_default_simulation():
-    # --- Setup the simulation ---
+    # --- Setup simulation ---
     sim = Simulation(dt=DT, integrator="beeman")
     sim.load_bodies_from_json(str(DATA_FILE))
     sim.initialise_bodies(sun_mass=SUN_MASS)
@@ -46,30 +47,26 @@ def run_default_simulation():
     energy_log_interval = 50    # log energy every N steps
 
     # --- Setup figure ---
-    fig, ax = plt.subplots(figsize=(8, 8), facecolor="black") # subplot allows for more control over axes and figure
+    fig, ax = plt.subplots(figsize=(8, 8), facecolor="black")
     ax.set_facecolor("black")
     ax.set_aspect("equal")
 
-    # Axis limits in AU — just beyond Neptune's orbit
+    # Axis limits in AU — just beyond Jupiter's orbit (5.2 AU)
     AU = 1.496e11
-    lim = 32.0 #Neptune's orbital radius is about 30AU
+    lim = 32.0
     ax.set_xlim(-lim, lim)
     ax.set_ylim(-lim, lim)
     ax.set_xlabel("x (AU)", color="white")
     ax.set_ylabel("y (AU)", color="white")
-    ax.tick_params(colors="white") # the little notches on the axis
+    ax.tick_params(colors="white")
     for spine in ax.spines.values():
-        spine.set_edgecolor("white") # axis spine is the main axis line itself
+        spine.set_edgecolor("white")
 
     # Time label
     time_text = ax.text(
         0.02, 0.96, "", transform=ax.transAxes,
         color="white", fontsize=10, va="top"
     )
-    """
-    transform = tansAxes fixes the text label to position on the axes, not figure
-    If I zoom out, the text label will stay in the same place because of this (placed in top right for now)
-    """
 
     # --- Create one dot + one trail line per body ---
     dots  = []
@@ -80,7 +77,7 @@ def run_default_simulation():
         # Dot — slightly larger for Sun
         size = 12 if body.name == "Sun" else 5
         dot, = ax.plot([], [], "o", color=body.colour, markersize=size,
-                       label=body.name, zorder=3) # z-order is basically vertical stacking - dots are above trail is above canvas
+                       label=body.name, zorder=3)
         dots.append(dot)
 
         # Trail line
@@ -91,18 +88,13 @@ def run_default_simulation():
         # Trail history
         trails.append(deque(maxlen=TRAIL_LENGTH))
 
-        """
-        deque is a data structure that stores a fixed-length collection of items. once max_len is reached, any new entries will
-        replace the oldest item in the deque
-        """
-
     ax.legend(loc="upper right", fontsize=7, facecolor="#111111",
               labelcolor="white", framealpha=0.7)
 
     # Track whether all periods have been found
     planet_names = [b.name for b in sim.bodies[1:] if not b.is_satellite]
-    periods_done: bool = False
-    step_counter: list[int] = [0]   # mutable so update() can modify it
+    periods_done = False
+    step_counter = [0]   # mutable so update() can modify it
 
     # --- Animation update function ---
     def update(frame):
@@ -124,9 +116,9 @@ def run_default_simulation():
             sim.print_periods()
 
         # Update dots and trails
-        for i, b in enumerate(sim.bodies):
-            x_au = b.position[0] / AU
-            y_au = b.position[1] / AU
+        for i, body in enumerate(sim.bodies):
+            x_au = body.position[0] / AU
+            y_au = body.position[1] / AU
 
             dots[i].set_data([x_au], [y_au])
 
@@ -171,16 +163,16 @@ def run_experiment_2():
 
 
 def run_experiment_3():
-    from experiment_3 import run_experiment_3 as exp3
-
+    from experiment_3 import run_experiment_3 as exp3, HOHMANN_DV
     import numpy as np
-    launch_speeds = list(np.linspace(2000, 4500, 25))  # m/s above Earth's orbital velocity
-    angles = list(np.linspace(0, 180, 30))
+    # Search centred on the Hohmann delta-v from L1 to Mars (~3475 m/s)
+    launch_speeds = list(np.linspace(HOHMANN_DV * 0.7, HOHMANN_DV * 1.6, 25))
+    angles        = list(np.linspace(0, 30, 7))   # degrees from Earth's prograde
     exp3(str(DATA_FILE), launch_speeds, angles, dt=DT)
 
 
 # Change RUN_MODE to select what to run:
-#   "sim"  — default solar system animation
+#   "sim"  — default solar system animation (Section 3)
 #   "exp1" — Experiment 1: Orbital Periods
 #   "exp2" — Experiment 2: Energy Conservation
 #   "exp3" — Experiment 3: Satellite to Mars

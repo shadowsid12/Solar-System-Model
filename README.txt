@@ -178,22 +178,44 @@ it injects energy each step, causing monotonic upward drift.
 EXPERIMENT 3: SATELLITE TO MARS
 --------------------------------------------------------------------------------
 
-LAUNCH CONDITIONS
------------------
-The satellite is placed 1e9 m (~ 2.5x Moon distance) radially outward from
-Earth. At this distance, Earth's gravity (~4e-4 m/s^2) is ~7% of the Sun's
-(~6e-3 m/s^2), so the satellite behaves heliocentrically from launch.
+LAUNCH CONDITIONS — SUN-EARTH L1 LAGRANGE POINT
+-------------------------------------------------
+The satellite is launched from the L1 Lagrange point, the unstable equilibrium
+on the Sun-Earth line where gravitational and centrifugal forces balance in the
+co-rotating frame. This is where the James Webb Space Telescope sits.
 
-The extra velocity is applied at angle theta relative to Earth's velocity:
+L1 distance from Earth (Hill sphere approximation):
 
-    v_extra = extra_speed * (cos(theta)*v_hat + sin(theta)*r_hat)
+    r_L1 = R * (M_earth / 3*M_sun)^(1/3) ~= 1.496 million km
 
-where v_hat is Earth's velocity unit vector (tangential, prograde) and
-r_hat is the radial unit vector (Sun -> Earth). So:
+L1 heliocentric orbital speed (must co-rotate with Earth):
 
-    theta = 0 deg   purely prograde (tangential)
-    theta = 90 deg  purely radial outward
+    v_L1 = omega_earth * (R - r_L1) ~= 29,488 m/s
+
+where omega_earth = 2*pi / T_earth. This is ~301 m/s LESS than Earth's orbital
+speed — Earth's gravity compensates, letting the satellite orbit more slowly
+despite being closer to the Sun.
+
+In the simulation frame (Earth at (R, 0) initially):
+
+    pos_L1 = earth.position - earth_rhat * r_L1     (toward the Sun)
+    vel_L1 = v_L1 * earth_vhat                      (prograde, tangential)
+
+The delta-v burn is applied at angle theta from Earth's prograde direction:
+
+    burn_dir = cos(theta)*earth_vhat + sin(theta)*earth_rhat
+    v_sat    = vel_L1 + delta_v * burn_dir
+
+    theta = 0 deg   purely prograde (minimum energy toward Mars)
+    theta = 90 deg  purely radial outward (away from Sun)
     theta = 180 deg retrograde
+
+Hohmann transfer delta-v from L1 to Mars (theoretical minimum energy):
+
+    v_transfer_perihelion = sqrt(G*M_sun * (2/r_L1 - 1/((r_L1 + r_mars)/2)))
+    delta_v_Hohmann       = v_transfer_perihelion - v_L1 ~= 3475 m/s
+
+The sweep is centred on this Hohmann value.
 
 ROCKET EQUATION
 ---------------

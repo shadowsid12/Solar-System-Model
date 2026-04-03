@@ -3,8 +3,9 @@ experiment_2.py
 ---------------
 Experiment 2: Energy Conservation & Alternative Integration Methods
 
-Runs Beeman, Euler-Cromer, and Direct Euler with the same dt and compares
-how well each conserves total system energy over time.
+Runs Beeman, Euler-Cromer, and Direct Euler for a fixed duration.
+Produces a combined energy plot and per-integrator subplots with rolling
+mean overlays to reveal oscillatory structure.
 """
 
 import numpy as np
@@ -13,7 +14,6 @@ from simulation import Simulation
 
 EARTH_YEAR = 365.25 * 24 * 3600
 SUN_MASS   = 1.989e30
-
 
 def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
     """
@@ -47,7 +47,7 @@ def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
 
         e0 = sim.total_energy()   # baseline energy at t=0
 
-        times        = []
+        times = []
         frac_changes = []
 
         for step in range(total_steps):
@@ -82,13 +82,13 @@ def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
         Compute centred rolling mean with the given window size.
         Edges are handled by shrinking the window so every point gets a value.
         """
-        arr  = np.array(data)
-        out  = np.empty_like(arr)
+        arr = np.array(data)
+        out = np.empty_like(arr)
         half = window // 2
         for i in range(len(arr)):
-            lo      = max(0, i - half)
-            hi      = min(len(arr), i + half + 1)
-            out[i]  = arr[lo:hi].mean()
+            lo = max(0, i - half)
+            hi = min(len(arr), i + half + 1)
+            out[i] = arr[lo:hi].mean()
         return out
 
     # Window size in steps: ~1 Earth year worth of steps smooths out

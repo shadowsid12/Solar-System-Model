@@ -3,8 +3,9 @@ experiment_1.py
 ---------------
 Experiment 1: Orbital Periods
 
-Runs the Beeman simulation at one or more time step sizes and compares
-the simulated orbital periods against NASA reference values.
+Runs the Beeman simulation at multiple time step sizes and compares simulated
+orbital periods against NASA reference values. Produces a printed table and
+a bar chart of percentage error per planet per dt.
 """
 
 import numpy as np
@@ -87,7 +88,7 @@ def run_experiment_1(data_file: str, dt_fractions: list[int] = None) -> None:
             print(f"{name:<10} {sim_yr:>15.4f} {ref:>12.4f} {error:>9.3f}%")
 
     # --- Bar chart: percentage error per planet per dt ---
-    x     = np.arange(len(planet_names))
+    x = np.arange(len(planet_names))
     width = 0.8 / len(dt_fractions)
 
     fig, ax = plt.subplots(figsize=(9, 5))

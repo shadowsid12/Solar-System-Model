@@ -148,23 +148,45 @@ mean[i] = average of data[i − half : i + half + 1]
 
 ## Experiment 3: Satellite to Mars
 
-### Launch Conditions
+### Launch Conditions — Sun-Earth L1 Lagrange Point
 
-The satellite is placed `1 × 10⁹ m` (~2.5× Moon distance) radially outward from Earth, where Earth's gravity is ~7% of the Sun's — negligible enough to treat the satellite heliocentrically from launch.
+The satellite is launched from the Sun-Earth L1 Lagrange point — the unstable equilibrium where gravitational and centrifugal forces balance in the co-rotating frame. This is where JWST sits.
 
-The extra velocity vector is rotated by angle θ relative to Earth's velocity direction:
-
+**L1 distance from Earth** (Hill sphere approximation):
 ```
-v_extra = extra_speed × (cos θ · v̂ + sin θ · r̂)
+r_L1 = R × (M_earth / 3·M_sun)^(1/3) ≈ 1.496 million km
 ```
 
-where v̂ is Earth's prograde (tangential) unit vector and r̂ is the radial unit vector (Sun → Earth):
+**L1 heliocentric parking speed** (must co-rotate with Earth):
+```
+v_L1 = ω_earth × (R − r_L1) ≈ 29,488 m/s
+```
+This is ~301 m/s slower than Earth's orbital speed — Earth's gravity compensates, allowing co-rotation at a closer solar radius.
+
+**Simulation placement:**
+```
+pos_L1 = earth.position − earth_r̂ × r_L1     (Sun side of Earth)
+vel_L1 = v_L1 × earth_v̂                      (prograde)
+```
+
+**Burn direction** rotated θ from Earth's prograde:
+```
+burn_dir = cos θ · v̂_earth + sin θ · r̂_earth
+v_sat    = vel_L1 + Δv × burn_dir
+```
 
 | θ | Direction |
 |---|---|
-| 0° | Purely prograde (tangential) |
+| 0° | Purely prograde (minimum energy toward Mars) |
 | 90° | Purely radial outward |
 | 180° | Retrograde |
+
+**Hohmann Δv from L1 to Mars** (theoretical minimum energy single burn):
+```
+v_transfer = sqrt(G·M_sun · (2/r_L1 − 1/((r_L1 + r_mars)/2)))
+Δv_Hohmann = v_transfer − v_L1 ≈ 3475 m/s
+```
+The parameter sweep is centred on this value.
 
 ### Rocket Equation
 
