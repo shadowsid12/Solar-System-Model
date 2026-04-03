@@ -3,78 +3,116 @@ experiment_3.py
 ---------------
 Experiment 3: Satellite to Mars
 
-Searches for launch velocities that send a satellite close to Mars.
-Reports closest approach, journey time vs Perseverance, return-to-Earth
-status, and fuel required via the rocket equation.
+Searches over launch speeds and launch angles to find trajectories that
+bring a satellite close to Mars. Reports closest approach, journey time
+vs Perseverance, return-to-Earth status, and fuel via the rocket equation.
+
+Parameter sweep
+---------------
+- extra_speed : additional speed (m/s) added on top of Earth's orbital velocity
+- theta       : angle (degrees) of the extra velocity vector measured from
+                Earth's velocity direction (theta=0 is purely tangential,
+                theta=90 is purely radial outward, etc.)
+
+Outputs
+-------
+- CSV of all sweep results (output/mars_experiment/parameter_sweep.csv)
+- Static trajectory plot for the best returning trajectory
+- Scatter plot: journey time vs fuel for all returning trajectories
+- Animation of the best returning trajectory
 """
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from pathlib import Path
+
 from simulation import Simulation
 from bodies import Body
 
-AU         = 1.496e11            # metres per astronomical unit
-EARTH_YEAR = 365.25 * 24 * 3600
-SUN_MASS   = 1.989e30
+# ------------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------------
 
-# Perseverance reference journey time: launched July 30 2020, landed Feb 18 2021
-PERSEVERANCE_JOURNEY_DAYS = 203.0
+AU         = 1.496e11             # metres per astronomical unit
+DAY        = 24 * 3600            # seconds per day
+EARTH_YEAR = 365.25 * 24 * 3600  # seconds per Earth year
+SUN_MASS   = 1.989e30             # kg
 
-# Rocket equation constants (chemical propulsion, e.g. Atlas V upper stage)
-PAYLOAD_MASS = 2000.0   # kg — fixed satellite payload mass
-V_EXHAUST    = 4400.0   # m/s — exhaust velocity (~Isp 450 s * 9.81)
+PERSEVERANCE_JOURNEY_DAYS = 203.0  # Jul 30 2020 → Feb 18 2021
 
-# "Return to Earth" threshold: satellite comes within this distance of Earth
-EARTH_RETURN_THRESHOLD_AU = 0.1   # AU
+PAYLOAD_MASS = 2000.0   # kg
+V_EXHAUST    = 4400.0   # m/s  (~Isp 450 s for chemical propulsion)
 
+# Return-to-Earth detection thresholds.
+# Both conditions must be satisfied simultaneously:
+#   1. Distance to Earth < EARTH_RETURN_THRESHOLD_AU
+#      (~0.01 AU = ~1.5 million km, roughly Earth's Hill sphere radius)
+#   2. Angular separation from Earth < EARTH_RETURN_ANGLE_DEG
+#      Prevents false positives where the satellite is at ~1 AU from the Sun
+#      but on the opposite side — Earth and satellite at similar radii but
+#      different angular positions would otherwise both pass the distance check
+#      once Earth completes an orbit and laps the satellite.
+EARTH_RETURN_THRESHOLD_AU  = 0.01   # AU — radial proximity to Earth
+EARTH_RETURN_ANGLE_DEG     = 5.0    # degrees — angular proximity to Earth
+LAUNCH_OFFSET_M            = 1.0e9  # metres from Earth — sphere of influence boundary
+
+
+# ------------------------------------------------------------------
+# Helper functions
+# ------------------------------------------------------------------
 
 def fuel_mass(delta_v: float) -> float:
     """
-    Rocket equation: m_fuel = m_payload * (exp(dv / v_exhaust) - 1)
-    Returns fuel mass in kg required to achieve delta_v from rest relative
-    to Earth's orbit, given a fixed payload mass.
+    Tsiolkovsky rocket equation.
+    Returns fuel mass (kg) needed to achieve delta_v with a fixed payload.
+        m_fuel = m_payload * (exp(dv / v_exhaust) - 1)
     """
     return PAYLOAD_MASS * (np.exp(delta_v / V_EXHAUST) - 1)
 
 
-def add_satellite(sim: Simulation, extra_speed: float) -> Body:
+def add_satellite(sim: Simulation, extra_speed: float, theta_deg: float) -> Body:
     """
-    Create and add a satellite launched from just outside Earth's position.
+    Add a satellite to the simulation launched from near Earth.
 
-    The satellite starts 1 million km above Earth (radially outward from the
-    Sun), inherits Earth's full velocity, and receives extra_speed added
-    tangentially (in the direction of Earth's velocity unit vector).
+    The satellite is placed LAUNCH_OFFSET_M radially outward from Earth
+    (away from the Sun), so Earth's gravity is negligible at launch.
+
+    The extra velocity is applied at angle theta_deg relative to Earth's
+    velocity vector:
+        theta=0   → purely tangential (prograde, along Earth's orbit)
+        theta=90  → purely radial outward (away from Sun)
+        theta=180 → retrograde (opposing Earth's orbit)
 
     Parameters
     ----------
-    sim         : Simulation to add the satellite to
-    extra_speed : additional speed in m/s added tangent to Earth's orbit
+    sim         : Simulation (planets already initialised)
+    extra_speed : magnitude of extra velocity (m/s)
+    theta_deg   : direction of extra velocity relative to Earth's velocity (degrees)
     """
     earth = next(b for b in sim.bodies if b.name == "Earth")
 
-    # Launch from Earth's sphere of influence boundary (~1e9 m, ~2.5x Moon distance).
-    # At this distance Earth's gravity is negligible vs the Sun's, so the satellite
-    # behaves as a heliocentric particle from the start.
-    # The offset is radial (away from Sun) to avoid numerical issues.
+    # Radial unit vector: Sun → Earth
     earth_rhat = earth.position / np.linalg.norm(earth.position)
-    offset     = earth_rhat * 1.0e9   # 1 million km radially outward
 
-    # Launch tangentially — add extra_speed in the direction Earth is moving
+    # Tangential unit vector: direction of Earth's orbital motion
     earth_vhat = earth.velocity / np.linalg.norm(earth.velocity)
-    launch_vel = earth.velocity + extra_speed * earth_vhat
+
+    # Rotate extra_speed direction by theta relative to Earth's velocity
+    theta_rad  = np.radians(theta_deg)
+    extra_vhat = np.cos(theta_rad) * earth_vhat + np.sin(theta_rad) * earth_rhat
 
     satellite = Body(
         name="Satellite",
         mass=PAYLOAD_MASS,
-        orbital_radius=0.0,   # not used for satellites
+        orbital_radius=0.0,
         colour="white",
         is_satellite=True,
     )
-    satellite.position = earth.position + offset
-    satellite.velocity = launch_vel
+    satellite.position = earth.position + earth_rhat * LAUNCH_OFFSET_M
+    satellite.velocity = earth.velocity + extra_speed * extra_vhat
 
-    # Bootstrap acceleration so Beeman has a valid a(t-dt) at t=0
     sim.add_body(satellite)
     accels = sim.compute_accelerations()
     satellite.acceleration      = accels["Satellite"]
@@ -83,217 +121,317 @@ def add_satellite(sim: Simulation, extra_speed: float) -> Body:
     return satellite
 
 
-def run_experiment_3(data_file: str, launch_speeds: list[float], dt: float) -> None:
-    """
-    Experiment 3: Satellite to Mars
-    --------------------------------
-    For each extra launch speed, runs a fresh simulation and tracks:
-      - Minimum distance to Mars
-      - Journey time to the closest approach (days)
-      - Whether the satellite returns within EARTH_RETURN_THRESHOLD_AU of Earth
-      - Fuel mass required (rocket equation)
+# ------------------------------------------------------------------
+# Main experiment function
+# ------------------------------------------------------------------
 
-    Produces:
-      - A printed results table for all launch speeds
-      - A static trajectory plot for the best fly-past
-      - A bar chart of fuel mass vs launch speed
-      - An animation of the best trajectory (via anim_best_trajectory)
+def run_experiment_3(data_file: str, launch_speeds: list[float],
+                     angles: list[float], dt: float) -> None:
+    """
+    Sweep over launch speeds and angles. For each combination, runs a fresh
+    simulation for MAX_YEARS and records:
+        - minimum distance to Mars (AU)
+        - journey time to closest approach (days)
+        - whether the satellite returns within EARTH_RETURN_THRESHOLD_AU of Earth
+        - fuel mass required (kg)
+
+    Saves results to CSV, then produces:
+        1. Static trajectory plot of the best returning trajectory
+        2. Scatter plot: journey time vs fuel for all returning trajectories
+        3. Animation of the best returning trajectory
 
     Parameters
     ----------
     data_file    : path to planets.json
     launch_speeds: list of extra speeds (m/s) above Earth's orbital velocity
+    angles       : list of launch angles in degrees (0 = prograde tangential)
     dt           : time step in seconds
     """
-    DAY       = 24 * 3600
-    MAX_YEARS = 2
-    total_steps = int(MAX_YEARS * EARTH_YEAR / dt)
-
-    results = []
-
-    header = (f"{'Extra v (m/s)':>14} {'Min dist (AU)':>14} "
-              f"{'Journey (days)':>15} {'Returns?':>9} {'Fuel (kg)':>10}")
-    print(header)
-    print("-" * 66)
-
-    best_idx  = None
-    best_dist = np.inf
-
-    for extra_v in launch_speeds:
-        sim = Simulation(dt=dt, integrator="beeman")
-        sim.load_bodies_from_json(data_file)
-        sim.initialise_bodies(sun_mass=SUN_MASS)
-        satellite = add_satellite(sim, extra_v)
-
-        mars  = next(b for b in sim.bodies if b.name == "Mars")
-        earth = next(b for b in sim.bodies if b.name == "Earth")
-
-        min_dist_m     = np.inf
-        journey_time_s = None
-        returned       = False
-        traj_positions = []   # satellite (x, y) positions in metres
-
-        for step in range(total_steps):
-            sim.step()
-
-            sat_pos  = satellite.position
-            dist_m   = np.linalg.norm(sat_pos - mars.position)
-
-            traj_positions.append(sat_pos.copy())
-
-            # Only track closest approach after 60 days — lets the satellite
-            # clearly depart Earth's vicinity before logging Mars proximity
-            if sim.time > 60 * DAY and dist_m < min_dist_m:
-                min_dist_m     = dist_m
-                journey_time_s = sim.time
-
-            # Check return to Earth (after at least 30 days to avoid false trigger)
-            dist_to_earth = np.linalg.norm(sat_pos - earth.position)
-            if sim.time > 30 * DAY and dist_to_earth / AU < EARTH_RETURN_THRESHOLD_AU:
-                returned = True
-
-        fuel_kg      = fuel_mass(extra_v)
-        min_dist_au  = min_dist_m / AU
-        journey_days = journey_time_s / DAY
-
-        results.append({
-            "extra_v":      extra_v,
-            "min_dist_au":  min_dist_au,
-            "journey_days": journey_days,
-            "returned":     returned,
-            "fuel_kg":      fuel_kg,
-            "traj":         traj_positions,
-            "sim":          sim,
-        })
-
-        print(f"{extra_v:>14.1f} {min_dist_au:>14.4f} {journey_days:>15.1f} "
-              f"{'Yes' if returned else 'No':>9} {fuel_kg:>10.1f}")
-
-        if min_dist_au < best_dist:
-            best_dist = min_dist_au
-            best_idx  = len(results) - 1
-
-    # --- Summary ---
-    best = results[best_idx]
-    print(f"\nBest trajectory: extra_v = {best['extra_v']:.1f} m/s")
-    print(f"  Closest approach to Mars : {best['min_dist_au']:.4f} AU  "
-          f"({best['min_dist_au'] * AU / 1e6:.0f} km)")
-    print(f"  Journey time             : {best['journey_days']:.1f} days  "
-          f"(Perseverance: {PERSEVERANCE_JOURNEY_DAYS:.0f} days)")
-    print(f"  Returns to Earth         : {'Yes' if best['returned'] else 'No'}")
-    print(f"  Fuel required            : {best['fuel_kg']:.1f} kg  "
-          f"(total launch mass: {PAYLOAD_MASS + best['fuel_kg']:.1f} kg)")
-
-    # --- Plot 1: best trajectory (static) ---
-    fig1, ax1 = plt.subplots(figsize=(8, 8), facecolor="black")
-    ax1.set_facecolor("black")
-    ax1.set_aspect("equal")
-
-    best_sim = best["sim"]
-    theta    = np.linspace(0, 2 * np.pi, 300)
-
-    for body in best_sim.bodies:
-        if body.name in ("Sun", "Satellite"):
-            continue
-        r_au = body.orbital_radius / AU
-        ax1.plot(r_au * np.cos(theta), r_au * np.sin(theta),
-                 color=body.colour, linewidth=0.4, alpha=0.3)
-        ax1.plot(*body.position / AU, "o", color=body.colour, markersize=4)
-        ax1.text(body.position[0] / AU, body.position[1] / AU + 0.08,
-                 body.name, color=body.colour, fontsize=6, ha="center")
-
-    ax1.plot(0, 0, "o", color="yellow", markersize=10)
-
-    traj = np.array(best["traj"]) / AU
-    ax1.plot(traj[:, 0], traj[:, 1], color="white", linewidth=0.8,
-             label=f"Satellite (Δv = {best['extra_v']:.0f} m/s)")
-    ax1.plot(traj[0, 0], traj[0, 1], "^", color="lime", markersize=7, label="Launch")
-
-    closest_step = int(best["journey_days"] * DAY / dt)
-    closest_step = min(closest_step, len(traj) - 1)
-    ax1.plot(traj[closest_step, 0], traj[closest_step, 1],
-             "*", color="red", markersize=10,
-             label=f"Closest ({best['min_dist_au']:.3f} AU)")
-
-    MARS_ORBIT_AU = 1.524
-    plot_limit    = MARS_ORBIT_AU * 1.15   # ~1.75 AU
-    ax1.set_xlim(-plot_limit, plot_limit)
-    ax1.set_ylim(-plot_limit, plot_limit)
-
-    ax1.set_xlabel("x (AU)", color="white")
-    ax1.set_ylabel("y (AU)", color="white")
-    ax1.tick_params(colors="white")
-    for spine in ax1.spines.values():
-        spine.set_edgecolor("white")
-    ax1.legend(fontsize=8, facecolor="#111111", labelcolor="white")
-    ax1.set_title("Experiment 3: Best Satellite Trajectory to Mars", color="white")
-    plt.tight_layout()
-    plt.show()
-
-    # --- Plot 2: fuel mass vs launch speed ---
-    fig2, ax2 = plt.subplots(figsize=(8, 4))
-    speeds    = [r["extra_v"]  for r in results]
-    fuels     = [r["fuel_kg"]  for r in results]
-    bar_width = (speeds[1] - speeds[0]) * 0.8 if len(speeds) > 1 else 50
-
-    ax2.bar(speeds, fuels, width=bar_width, color="steelblue", alpha=0.8)
-    ax2.bar(best["extra_v"], best["fuel_kg"], width=bar_width,
-            color="lime", alpha=0.9, label="Best trajectory")
-
-    ax2.set_xlabel("Extra launch speed (m/s)")
-    ax2.set_ylabel("Fuel mass (kg)")
-    ax2.set_title(f"Experiment 3: Fuel Required vs Launch Speed\n"
-                  f"(Payload = {PAYLOAD_MASS:.0f} kg, Isp ≈ 450 s)")
-    ax2.legend()
-    plt.tight_layout()
-    plt.show()
-
-    # --- Animation of the best trajectory ---
-    anim_best_trajectory(data_file, best["extra_v"], dt,
-                         best["journey_days"], best["min_dist_au"])
-
-
-def anim_best_trajectory(data_file: str, extra_v: float, dt: int,
-                          journey_days: float, min_dist_au: float) -> None:
-    """
-    Re-runs the best-trajectory simulation and produces a FuncAnimation showing
-    the satellite's journey to Mars alongside the live positions of all planets.
-
-    Static elements  : faint orbit rings, Sun, launch marker
-    Animated elements: planet dots + name labels, growing satellite trail,
-                       satellite dot, closest-approach star (appears on arrival),
-                       elapsed-time readout
-
-    Parameters
-    ----------
-    data_file    : path to planets.json
-    extra_v      : extra launch speed (m/s) — the best trajectory value
-    dt           : time step in seconds (same value used in run_experiment_3)
-    journey_days : days to closest Mars approach (marks the closest-approach frame)
-    min_dist_au  : closest approach distance in AU (used in legend label)
-    """
-    DAY         = 24 * 3600
     MAX_YEARS   = 2
     total_steps = int(MAX_YEARS * EARTH_YEAR / dt)
 
-    # --- Re-run simulation and record all body positions ---
+    output_dir = Path(__file__).parent / "output" / "mars_experiment"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = []
+
+    print(f"Sweep: {len(launch_speeds)} speeds x {len(angles)} angles "
+          f"= {len(launch_speeds)*len(angles)} runs")
+    print(f"{'Speed (m/s)':>12} {'Angle (deg)':>12} {'Min dist (AU)':>14} "
+          f"{'Journey (days)':>15} {'Returns?':>9} {'Fuel (kg)':>10}")
+    print("-" * 76)
+
+    for extra_v in launch_speeds:
+        for theta in angles:
+            sim = Simulation(dt=dt, integrator="beeman")
+            sim.load_bodies_from_json(data_file)
+            sim.initialise_bodies(sun_mass=SUN_MASS)
+
+            satellite = add_satellite(sim, extra_v, theta)
+            mars      = next(b for b in sim.bodies if b.name == "Mars")
+            earth     = next(b for b in sim.bodies if b.name == "Earth")
+
+            min_dist_m     = np.inf
+            journey_time_s = 0.0
+            returned       = False
+            traj           = []   # list of (x_AU, y_AU) positions
+
+            for _ in range(total_steps):
+                sim.step()
+
+                sat_pos = satellite.position.copy()
+                traj.append(sat_pos / AU)
+
+                dist_mars  = np.linalg.norm(sat_pos - mars.position)
+                dist_earth = np.linalg.norm(sat_pos - earth.position)
+
+                # Only track Mars closest approach after 60 days
+                if sim.time > 60 * DAY and dist_mars < min_dist_m:
+                    min_dist_m     = dist_mars
+                    journey_time_s = sim.time
+
+                # Return check — requires BOTH conditions after the Mars fly-past:
+                #   1. Within EARTH_RETURN_THRESHOLD_AU of Earth's actual position
+                #   2. Within EARTH_RETURN_ANGLE_DEG of Earth's angular position
+                # Condition 2 is critical: without it, any trajectory that passes
+                # through ~1 AU after ~1 year will appear to "return" because Earth
+                # has orbited back to a similar radius, making the distance check pass
+                # even when they are on opposite sides of the Sun.
+                if journey_time_s > 0 and sim.time > journey_time_s + 30 * DAY:
+                    angle_sat   = np.arctan2(sat_pos[1], sat_pos[0])
+                    angle_earth = np.arctan2(earth.position[1], earth.position[0])
+                    delta_angle = abs((angle_sat - angle_earth + np.pi) % (2*np.pi) - np.pi)
+                    delta_angle_deg = np.degrees(delta_angle)
+                    if (dist_earth / AU < EARTH_RETURN_THRESHOLD_AU
+                            and delta_angle_deg < EARTH_RETURN_ANGLE_DEG):
+                        returned = True
+
+            min_dist_au  = min_dist_m / AU
+            journey_days = journey_time_s / DAY
+            fuel_kg      = fuel_mass(extra_v)
+
+            print(f"{extra_v:>12.1f} {theta:>12.1f} {min_dist_au:>14.4f} "
+                  f"{journey_days:>15.1f} {'Yes' if returned else 'No':>9} "
+                  f"{fuel_kg:>10.1f}")
+
+            rows.append({
+                "extra_v_ms":    extra_v,
+                "angle_deg":     theta,
+                "min_dist_au":   min_dist_au,
+                "journey_days":  journey_days,
+                "returned":      returned,
+                "fuel_kg":       fuel_kg,
+                "traj":          traj,   # not saved to CSV
+                "sim":           sim,    # not saved to CSV
+            })
+
+    # --- Save CSV (exclude non-serialisable columns) ---
+    df = pd.DataFrame([{k: v for k, v in r.items() if k not in ("traj", "sim")}
+                       for r in rows])
+    csv_path = output_dir / "parameter_sweep.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"\nResults saved to {csv_path}")
+
+    # --- Find best returning trajectory using weighted score ---
+    returning = [r for r in rows if r["returned"]]
+    if not returning:
+        print("\nNo trajectories returned to Earth. Showing best overall.")
+        returning = rows
+
+    best = _select_best(returning)
+
+    print(f"\nBest returning trajectory (weighted score):")
+    print(f"  Speed:                    {best['extra_v_ms']:.1f} m/s")
+    print(f"  Angle:                    {best['angle_deg']:.1f} deg")
+    print(f"  Closest approach to Mars: {best['min_dist_au']:.4f} AU  "
+          f"({best['min_dist_au']*AU/1e6:.0f} km)")
+    print(f"  Journey time:             {best['journey_days']:.1f} days  "
+          f"(Perseverance: {PERSEVERANCE_JOURNEY_DAYS:.0f} days)")
+    print(f"  Fuel required:            {best['fuel_kg']:.1f} kg  "
+          f"(dry mass: {PAYLOAD_MASS:.0f} kg, wet mass: {PAYLOAD_MASS + best['fuel_kg']:.1f} kg)")
+    print(f"  Weighted score:           {best.get('score', float('nan')):.4f}  "
+          f"(lower = better; weights: dist=0.5, time=0.3, fuel=0.2)")
+
+    # --- Plot 1: static trajectory of best run ---
+    _plot_best_trajectory(best, dt)
+
+    # --- Plot 2: scatter — journey time vs fuel for all returning trajectories ---
+    _plot_time_vs_fuel(returning, best)
+
+    # --- Animation: best trajectory ---
+    _animate_trajectory(data_file, best["extra_v_ms"], best["angle_deg"], dt,
+                        best["journey_days"], best["min_dist_au"])
+
+
+# ------------------------------------------------------------------
+# Visualisation helpers
+# ------------------------------------------------------------------
+
+def _select_best(candidates: list[dict]) -> dict:
+    """
+    Select the best trajectory from a list using a weighted normalised score.
+
+    Each metric is normalised to [0, 1] across all candidates so that
+    differences in units (AU vs days vs kg) do not bias the result.
+    Lower score = better trajectory.
+
+    Weights (sum to 1.0):
+        0.5 — closest Mars approach distance
+              Weighted most heavily because the primary mission goal is a
+              fly-past; a trajectory that barely reaches Mars orbit is not useful
+              regardless of how cheap or fast it is.
+        0.3 — journey time to closest approach
+              Shorter missions reduce operational risk, communication delays,
+              and time for systems to degrade.
+        0.2 — fuel mass required
+              Lower fuel means lower launch cost and simpler vehicle design,
+              but fuel is already partially captured by time (faster = more fuel)
+              so it is down-weighted relative to the other two.
+
+    Score formula:
+        score = 0.5 * (d / d_max) + 0.3 * (t / t_max) + 0.2 * (f / f_max)
+
+    where d = min_dist_au, t = journey_days, f = fuel_kg, and the denominators
+    are the maximum values across all candidates (normalisation).
+    """
+    d_max = max(r["min_dist_au"]  for r in candidates)
+    t_max = max(r["journey_days"] for r in candidates)
+    f_max = max(r["fuel_kg"]      for r in candidates)
+
+    def score(r: dict) -> float:
+        d_norm = r["min_dist_au"]  / d_max if d_max > 0 else 0
+        t_norm = r["journey_days"] / t_max if t_max > 0 else 0
+        f_norm = r["fuel_kg"]      / f_max if f_max > 0 else 0
+        return 0.5 * d_norm + 0.3 * t_norm + 0.2 * f_norm
+
+    best = min(candidates, key=score)
+    best["score"] = score(best)
+    return best
+
+
+def _plot_best_trajectory(best: dict, dt: float) -> None:
+    """Static trajectory plot for the best returning run."""
+    fig, ax = plt.subplots(figsize=(8, 8), facecolor="black")
+    ax.set_facecolor("black")
+    ax.set_aspect("equal")
+
+    sim   = best["sim"]
+    theta = np.linspace(0, 2 * np.pi, 300)
+
+    # Faint orbit rings + final planet positions
+    for body in sim.bodies:
+        if body.name in ("Sun", "Satellite"):
+            continue
+        r_au = body.orbital_radius / AU
+        ax.plot(r_au * np.cos(theta), r_au * np.sin(theta),
+                color=body.colour, linewidth=0.4, alpha=0.3)
+        ax.plot(*body.position / AU, "o", color=body.colour, markersize=4)
+        ax.text(body.position[0]/AU, body.position[1]/AU + 0.06,
+                body.name, color=body.colour, fontsize=6, ha="center")
+
+    ax.plot(0, 0, "o", color="yellow", markersize=10, zorder=5)
+
+    # Satellite trajectory
+    traj = np.array(best["traj"])
+    ax.plot(traj[:, 0], traj[:, 1], color="white", linewidth=0.8, alpha=0.9,
+            label=f"Satellite  Δv={best['extra_v_ms']:.0f} m/s, θ={best['angle_deg']:.0f}°")
+    ax.plot(traj[0, 0], traj[0, 1], "^", color="lime", markersize=8, label="Launch")
+
+    # Closest-approach marker
+    closest_step = min(int(best["journey_days"] * DAY / (EARTH_YEAR/1000)),
+                       len(traj) - 1)
+    ax.plot(traj[closest_step, 0], traj[closest_step, 1], "*", color="red",
+            markersize=12, label=f"Closest ({best['min_dist_au']:.3f} AU)")
+
+    lim = 2.0
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+    ax.set_xlabel("x (AU)", color="white")
+    ax.set_ylabel("y (AU)", color="white")
+    ax.tick_params(colors="white")
+    for spine in ax.spines.values():
+        spine.set_edgecolor("white")
+    ax.legend(fontsize=8, facecolor="#111111", labelcolor="white")
+    ax.set_title("Experiment 3: Best Returning Trajectory to Mars", color="white")
+    plt.tight_layout()
+    plt.show()
+
+
+def _plot_time_vs_fuel(returning: list[dict], best: dict) -> None:
+    """
+    Scatter plot: journey time (days) vs fuel mass (kg) for all returning
+    trajectories. Each point is coloured by launch angle. The best trajectory
+    is highlighted.
+    """
+    speeds  = np.array([r["extra_v_ms"]   for r in returning])
+    times   = np.array([r["journey_days"] for r in returning])
+    fuels   = np.array([r["fuel_kg"]      for r in returning])
+    angles  = np.array([r["angle_deg"]    for r in returning])
+    dists   = np.array([r["min_dist_au"]  for r in returning])
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+
+    # --- Left: journey time vs fuel, coloured by angle ---
+    sc = axes[0].scatter(fuels, times, c=angles, cmap="plasma",
+                         s=60, alpha=0.8, zorder=3)
+    plt.colorbar(sc, ax=axes[0], label="Launch angle (deg)")
+
+    # Highlight best
+    axes[0].scatter(best["fuel_kg"], best["journey_days"],
+                    marker="*", s=250, color="red", zorder=5,
+                    label=f"Best  Δv={best['extra_v_ms']:.0f} m/s, θ={best['angle_deg']:.0f}°")
+
+    # Perseverance reference line
+    axes[0].axhline(PERSEVERANCE_JOURNEY_DAYS, color="cyan", linewidth=1.0,
+                    linestyle="--", label=f"Perseverance ({PERSEVERANCE_JOURNEY_DAYS:.0f} days)")
+
+    axes[0].set_xlabel("Fuel mass (kg)")
+    axes[0].set_ylabel("Journey time to closest approach (days)")
+    axes[0].set_title("Returning trajectories: Journey time vs Fuel")
+    axes[0].legend(fontsize=8)
+
+    # --- Right: closest approach distance vs fuel, coloured by angle ---
+    sc2 = axes[1].scatter(fuels, dists, c=angles, cmap="plasma",
+                          s=60, alpha=0.8, zorder=3)
+    plt.colorbar(sc2, ax=axes[1], label="Launch angle (deg)")
+
+    axes[1].scatter(best["fuel_kg"], best["min_dist_au"],
+                    marker="*", s=250, color="red", zorder=5, label="Best")
+
+    axes[1].set_xlabel("Fuel mass (kg)")
+    axes[1].set_ylabel("Closest approach to Mars (AU)")
+    axes[1].set_title("Returning trajectories: Closest approach vs Fuel")
+    axes[1].legend(fontsize=8)
+
+    plt.suptitle("Experiment 3: Trade-off Analysis — Returning Trajectories", fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+
+def _animate_trajectory(data_file: str, extra_v: float, theta_deg: float,
+                         dt: float, journey_days: float, min_dist_au: float) -> None:
+    """
+    Re-run the best trajectory and animate the satellite's journey.
+    Shows planet orbits, live planet positions, growing satellite trail,
+    and reveals a closest-approach marker when the satellite arrives.
+    """
+    MAX_YEARS   = 2
+    total_steps = int(MAX_YEARS * EARTH_YEAR / dt)
+
+    # Re-run to collect full position history
     sim = Simulation(dt=dt, integrator="beeman")
     sim.load_bodies_from_json(data_file)
     sim.initialise_bodies(sun_mass=SUN_MASS)
-    satellite = add_satellite(sim, extra_v)
+    satellite = add_satellite(sim, extra_v, theta_deg)
 
-    # Collect metadata before the loop (colours, orbit radii)
-    body_colour   = {b.name: b.colour for b in sim.bodies}
-    body_orbit_au = {b.name: b.orbital_radius / AU
-                     for b in sim.bodies if b.name not in ("Sun", "Satellite")}
     animated_names = [b.name for b in sim.bodies if b.name != "Sun"]
+    body_colour    = {b.name: b.colour for b in sim.bodies}
+    body_orbit_au  = {b.name: b.orbital_radius / AU
+                      for b in sim.bodies if b.name not in ("Sun", "Satellite")}
+    body_map       = {b.name: b for b in sim.bodies}
 
-    # Pre-allocate position history arrays for efficiency
     history    = {name: np.empty((total_steps, 2)) for name in animated_names}
     times_days = np.empty(total_steps)
-
-    # Cache body lookups so the inner loop doesn't search each step
-    body_map = {b.name: b for b in sim.bodies}
 
     for step in range(total_steps):
         sim.step()
@@ -301,7 +439,7 @@ def anim_best_trajectory(data_file: str, extra_v: float, dt: int,
             history[name][step] = body_map[name].position / AU
         times_days[step] = sim.time / DAY
 
-    # Subsample: cap at 800 frames so the animation isn't sluggish for small dt
+    # Subsample to at most 800 frames
     n_frames  = min(800, total_steps)
     frame_idx = np.linspace(0, total_steps - 1, n_frames, dtype=int)
 
@@ -310,33 +448,31 @@ def anim_best_trajectory(data_file: str, extra_v: float, dt: int,
     ax.set_facecolor("black")
     ax.set_aspect("equal")
 
-    MARS_ORBIT_AU = 1.524
-    plot_limit    = MARS_ORBIT_AU * 1.15   # ~1.75 AU — just beyond Mars' orbit
-    ax.set_xlim(-plot_limit, plot_limit)
-    ax.set_ylim(-plot_limit, plot_limit)
+    lim = 2.0
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
     ax.set_xlabel("x (AU)", color="white")
     ax.set_ylabel("y (AU)", color="white")
     ax.tick_params(colors="white")
     for spine in ax.spines.values():
         spine.set_edgecolor("white")
-    ax.set_title(f"Experiment 3: Satellite to Mars  (Δv = {extra_v:.0f} m/s)", color="white")
+    ax.set_title(f"Experiment 3: Satellite to Mars  "
+                 f"(Δv={extra_v:.0f} m/s, θ={theta_deg:.0f}°)", color="white")
 
-    # Static: faint orbit rings for each planet
-    theta = np.linspace(0, 2 * np.pi, 300)
+    # Static: orbit rings + Sun + launch marker
+    ring_theta = np.linspace(0, 2 * np.pi, 300)
     for name, r_au in body_orbit_au.items():
-        ax.plot(r_au * np.cos(theta), r_au * np.sin(theta),
+        ax.plot(r_au * np.cos(ring_theta), r_au * np.sin(ring_theta),
                 color=body_colour[name], linewidth=0.4, alpha=0.3)
 
-    # Static: Sun dot and launch-position marker
     ax.plot(0, 0, "o", color="yellow", markersize=10, zorder=5)
     ax.plot(history["Satellite"][0, 0], history["Satellite"][0, 1],
             "^", color="lime", markersize=7, label="Launch", zorder=5)
 
-    # Animated: satellite trail (grows each frame) and current-position dot
-    sat_trail, = ax.plot([], [], color="white", linewidth=0.8, alpha=0.9, zorder=3)
+    # Animated artists
+    sat_trail, = ax.plot([], [], color="white", linewidth=0.9, alpha=0.9, zorder=3)
     sat_dot,   = ax.plot([], [], "o", color="cyan", markersize=6, zorder=4)
 
-    # Animated: one dot + floating name label per planet
     planet_dots   = {}
     planet_labels = {}
     for name in animated_names:
@@ -349,21 +485,17 @@ def anim_best_trajectory(data_file: str, extra_v: float, dt: int,
         planet_dots[name]   = dot
         planet_labels[name] = lbl
 
-    # Animated: closest-approach star — invisible until the satellite arrives
-    closest_marker, = ax.plot([], [], "*", color="red", markersize=12, zorder=6,
-                               label=f"Closest approach ({min_dist_au:.3f} AU)")
-
-    # Elapsed-time readout (top-left, fixed to axes coordinates)
+    closest_marker, = ax.plot([], [], "*", color="red", markersize=14, zorder=6,
+                               label=f"Closest ({min_dist_au:.3f} AU)")
     time_text = ax.text(0.02, 0.97, "", transform=ax.transAxes,
                         color="white", fontsize=9, va="top")
 
     ax.legend(fontsize=8, facecolor="#111111", labelcolor="white", loc="upper right")
 
-    # Frame number at which closest approach occurs
+    # Frame at which closest approach occurs
     closest_global_step = int(journey_days * DAY / dt)
     closest_frame       = int(np.argmin(np.abs(frame_idx - closest_global_step)))
 
-    # --- Animation callbacks ---
     def init():
         sat_trail.set_data([], [])
         sat_dot.set_data([], [])
@@ -371,31 +503,30 @@ def anim_best_trajectory(data_file: str, extra_v: float, dt: int,
         time_text.set_text("")
         for dot in planet_dots.values():
             dot.set_data([], [])
-        return [sat_trail, sat_dot, closest_marker, time_text] + list(planet_dots.values())
+        return ([sat_trail, sat_dot, closest_marker, time_text]
+                + list(planet_dots.values()))
 
     def update(frame_num):
         idx = frame_idx[frame_num]
 
-        # Grow the satellite trail up to the current step
-        sat_trail.set_data(history["Satellite"][:idx + 1, 0],
-                           history["Satellite"][:idx + 1, 1])
+        sat_trail.set_data(history["Satellite"][:idx+1, 0],
+                           history["Satellite"][:idx+1, 1])
         sat_dot.set_data([history["Satellite"][idx, 0]],
                          [history["Satellite"][idx, 1]])
 
-        # Move each planet dot and its label
         for name, dot in planet_dots.items():
             pos = history[name][idx]
             dot.set_data([pos[0]], [pos[1]])
-            planet_labels[name].set_position((pos[0], pos[1] + 0.08))
+            planet_labels[name].set_position((pos[0], pos[1] + 0.06))
 
-        # Reveal the closest-approach marker once we reach that frame
         if frame_num >= closest_frame:
             ca = history["Satellite"][frame_idx[closest_frame]]
             closest_marker.set_data([ca[0]], [ca[1]])
 
         time_text.set_text(f"t = {times_days[idx]:.0f} days")
 
-        return [sat_trail, sat_dot, closest_marker, time_text] + list(planet_dots.values())
+        return ([sat_trail, sat_dot, closest_marker, time_text]
+                + list(planet_dots.values()))
 
     anim = FuncAnimation(fig, update, frames=n_frames, init_func=init,
                          interval=20, blit=True)

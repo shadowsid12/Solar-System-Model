@@ -1,8 +1,8 @@
 """
 main.py
 -------
-Entry point. Runs the default solar system simulation with a matplotlib
-FuncAnimation. Experiments are handled in experiments.py.
+Entry point. Runs the default solar system simulation with a matplotlib FuncAnimation.
+Experiments are handled in in their own files.
 """
 
 from pathlib import Path
@@ -46,7 +46,7 @@ def run_default_simulation():
     energy_log_interval = 50    # log energy every N steps
 
     # --- Setup figure ---
-    fig, ax = plt.subplots(figsize=(10, 10), facecolor="black") # subplot allows for more control over axes and figure
+    fig, ax = plt.subplots(figsize=(8, 8), facecolor="black") # subplot allows for more control over axes and figure
     ax.set_facecolor("black")
     ax.set_aspect("equal")
 
@@ -172,9 +172,11 @@ def run_experiment_2():
 
 def run_experiment_3():
     from experiment_3 import run_experiment_3 as exp3
+
     import numpy as np
     launch_speeds = list(np.linspace(2000, 4500, 25))  # m/s above Earth's orbital velocity
-    exp3(str(DATA_FILE), launch_speeds, dt=DT)
+    angles = list(np.linspace(0, 180, 30))
+    exp3(str(DATA_FILE), launch_speeds, angles, dt=DT)
 
 
 # Change RUN_MODE to select what to run:
@@ -182,7 +184,7 @@ def run_experiment_3():
 #   "exp1" — Experiment 1: Orbital Periods
 #   "exp2" — Experiment 2: Energy Conservation
 #   "exp3" — Experiment 3: Satellite to Mars
-RUN_MODE = "sim"
+RUN_MODE = "exp3"
 
 if __name__ == "__main__":
     if RUN_MODE == "exp1":

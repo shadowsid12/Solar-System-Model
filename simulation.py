@@ -78,9 +78,6 @@ class Simulation:
         Sun     : origin, zero velocity
         Planets : positive x-axis at orbital_radius, Keplerian circular speed in +y
                   v_circ = sqrt(G * M_sun / r)
-
-        Center-of-mass velocity is subtracted so the system has zero net momentum.
-        prev_acceleration is bootstrapped from a(t=0) for the Beeman method.
         """
         # Load sun
         sun = self.bodies[0]
