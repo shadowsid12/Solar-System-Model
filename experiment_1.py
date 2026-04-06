@@ -12,6 +12,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from simulation import Simulation
 
+import csv
+from pathlib import Path
+
 EARTH_YEAR = 365.25 * 24 * 3600
 SUN_MASS   = 1.989e30
 
@@ -52,7 +55,6 @@ def run_experiment_1(data_file: str, dt_fractions: list[int] = None) -> None:
 
     planet_names = list(NASA_PERIODS.keys())
 
-    # results[fraction] = {planet_name: simulated_period_yr}
     results = {}
 
     for fraction in dt_fractions:
@@ -63,7 +65,7 @@ def run_experiment_1(data_file: str, dt_fractions: list[int] = None) -> None:
 
         total_steps = int(SIMULATION_YEARS * EARTH_YEAR / dt)
 
-        for _ in range(total_steps):
+        for i in range(total_steps):
             sim.step()
             if all(n in sim.periods for n in planet_names):
                 break
@@ -74,7 +76,7 @@ def run_experiment_1(data_file: str, dt_fractions: list[int] = None) -> None:
             if name in sim.periods
         }
 
-        # Print table for this dt
+        # Pretty-print table for this dt
         print(f"\n--- dt = EARTH_YEAR / {fraction}  ({dt/3600:.2f} hours) ---")
         print(f"{'Body':<10} {'Simulated (yr)':>15} {'NASA (yr)':>12} {'Error (%)':>10}")
         print("-" * 50)
@@ -87,11 +89,32 @@ def run_experiment_1(data_file: str, dt_fractions: list[int] = None) -> None:
             error  = abs(sim_yr - ref) / ref * 100
             print(f"{name:<10} {sim_yr:>15.4f} {ref:>12.4f} {error:>9.3f}%")
 
-    # --- Bar chart: percentage error per planet per dt ---
+    # Export to CSV
+    output_dir = Path(__file__).parent / "output" / "exp_1_results"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = output_dir / "orbital_periods_dt_comparison.csv"
+
+    with open(csv_path, mode='w', newline='') as f:
+        writer = csv.writer(f)
+
+        # Header: Planet, then each DT fraction
+        header = ["Planet"] + [f"dt_yr_{frac}" for frac in dt_fractions]
+        writer.writerow(header)
+
+        for name in planet_names:
+            row = [name]
+            for frac in dt_fractions:
+                # Get simulated period or None if not detected
+                val = results[frac].get(name, "N/A")
+                row.append(val)
+            writer.writerow(row)
+
+
+    # Bar chart for percentage error per planet per dt
     x = np.arange(len(planet_names))
     width = 0.8 / len(dt_fractions)
 
-    fig, ax = plt.subplots(figsize=(9, 5))
+    fig, ax = plt.subplots(figsize=(12, 5))
 
     for i, fraction in enumerate(dt_fractions):
         errors = []

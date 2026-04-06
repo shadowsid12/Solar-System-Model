@@ -2,7 +2,6 @@
 main.py
 -------
 Entry point. Runs the default solar system simulation with a matplotlib
-FuncAnimation. Experiments are handled in experiments.py.
 """
 
 from pathlib import Path
@@ -10,7 +9,6 @@ from collections import deque
 
 import numpy as np
 import matplotlib
-matplotlib.use("TkAgg")          # change to "Qt5Agg" if TkAgg is unavailable
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
@@ -154,29 +152,29 @@ def run_default_simulation():
 
 def run_experiment_1():
     from experiment_1 import run_experiment_1 as exp1
-    exp1(str(DATA_FILE), dt_fractions=[200, 500, 1000])
+    timestamps = list(np.linspace(200, 1000, 5))
+    # timestamps_2 = list([2500, 5000, 10000]) longer runs to check trends
+    exp1(str(DATA_FILE), dt_fractions=timestamps)
 
 
 def run_experiment_2():
     from experiment_2 import run_experiment_2 as exp2
-    exp2(str(DATA_FILE), dt=DT, num_years=5)
+    exp2(str(DATA_FILE), dt=500, num_years=100)
 
 
 def run_experiment_3():
     from experiment_3 import run_experiment_3 as exp3, HOHMANN_DV
-    import numpy as np
     # Search centred on the Hohmann delta-v from L1 to Mars (~3475 m/s)
-    launch_speeds = list(np.linspace(HOHMANN_DV * 0.7, HOHMANN_DV * 1.6, 30))
-    angles        = list(np.linspace(0, 60, 21))   # degrees from Earth's prograde
+    launch_speeds = list(np.linspace(HOHMANN_DV * 0.7, HOHMANN_DV * 1.6, 10))
+    angles        = list(np.linspace(-90, 90, 10))   # degrees from Earth's prograde
     exp3(str(DATA_FILE), launch_speeds, angles, dt=DT)
-
 
 # Change RUN_MODE to select what to run:
 #   "sim"  — default solar system animation (Section 3)
 #   "exp1" — Experiment 1: Orbital Periods
 #   "exp2" — Experiment 2: Energy Conservation
 #   "exp3" — Experiment 3: Satellite to Mars
-RUN_MODE = "exp3"
+RUN_MODE = "exp1"
 
 if __name__ == "__main__":
     if RUN_MODE == "exp1":
@@ -185,5 +183,6 @@ if __name__ == "__main__":
         run_experiment_2()
     elif RUN_MODE == "exp3":
         run_experiment_3()
+
     else:
         run_default_simulation()
