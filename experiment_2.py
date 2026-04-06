@@ -90,7 +90,7 @@ def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
         f.write("  Amplitude = half peak-to-peak of dE/E0.\n")
         f.write("  For Beeman and Euler-Cromer the energy oscillates, so the\n")
         f.write("  final dE/E0 is phase-dependent and not a reliable drift metric.\n")
-        f.write("  For Direct Euler the final value reflects genuine secular drift.\n")
+        f.write("  For Direct Euler the final value reflects genuine drift.\n")
 
     print(f"Summary written  → {txt_path}")
 

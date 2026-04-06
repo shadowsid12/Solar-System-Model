@@ -1,0 +1,17 @@
+Experiment 2: Energy Conservation Summary
+==================================================
+Simulation duration : 5 Earth years
+Time step           : EARTH_YEAR / 31557.6  (0.28 hours)
+Total steps         : 157788
+
+Integrator          Final dE/E0       Min dE/E0       Max dE/E0   Amplitude (pk-pk/2)
+--------------------------------------------------------------------------------
+Beeman            +1.220360e-09   +1.219653e-09   +1.220373e-09          3.597162e-13
+Euler-Cromer      -1.595095e-08   -1.951916e-08   +1.571701e-09          1.054543e-08
+Direct Euler      +1.001181e-03   +7.318257e-09   +1.001181e-03          5.005870e-04
+
+Notes:
+  Amplitude = half peak-to-peak of dE/E0.
+  For Beeman and Euler-Cromer the energy oscillates, so the
+  final dE/E0 is phase-dependent and not a reliable drift metric.
+  For Direct Euler the final value reflects genuine drift.
