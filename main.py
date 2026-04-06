@@ -159,7 +159,7 @@ def run_experiment_1():
 
 def run_experiment_2():
     from experiment_2 import run_experiment_2 as exp2
-    exp2(str(DATA_FILE), dt=500, num_years=100)
+    exp2(str(DATA_FILE), dt=1000, num_years=50)
 
 
 def run_experiment_3():
@@ -174,7 +174,7 @@ def run_experiment_3():
 #   "exp1" — Experiment 1: Orbital Periods
 #   "exp2" — Experiment 2: Energy Conservation
 #   "exp3" — Experiment 3: Satellite to Mars
-RUN_MODE = "exp1"
+RUN_MODE = "exp2"
 
 if __name__ == "__main__":
     if RUN_MODE == "exp1":

@@ -1,6 +1,4 @@
 """
-experiment_2.py
----------------
 Experiment 2: Energy Conservation & Alternative Integration Methods
 
 Runs Beeman, Euler-Cromer, and Direct Euler for a fixed duration.
@@ -11,6 +9,7 @@ mean overlays to reveal oscillatory structure.
 import numpy as np
 import matplotlib.pyplot as plt
 from simulation import Simulation
+from pathlib import Path
 
 EARTH_YEAR = 365.25 * 24 * 3600
 SUN_MASS   = 1.989e30
@@ -37,6 +36,10 @@ def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
     colours     = ("steelblue", "darkorange", "firebrick")
     total_steps = int(num_years * EARTH_YEAR / dt)
 
+    # Output directory
+    output_dir = Path(data_file).parent.parent / "output" / "exp_2_results"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     # Store (times_yr, frac_energy_change) per integrator
     energy_data = {}
 
@@ -59,32 +62,77 @@ def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
         energy_data[integrator] = (times, frac_changes)
         print(f"{integrator:<15}  final dE/E0 = {frac_changes[-1]:+.6e}")
 
-    # --- Plot 1: all three integrators on one axes ---
+    # Write data to .txt file
+    txt_path = output_dir / "energy_summary.txt"
+    with open(txt_path, "w") as f:
+        f.write("Experiment 2: Energy Conservation Summary\n")
+        f.write("=" * 50 + "\n")
+        f.write(f"Simulation duration : {num_years} Earth years\n")
+        f.write(f"Time step           : EARTH_YEAR / {EARTH_YEAR / dt:.1f}  "
+                f"({dt / 3600:.2f} hours)\n")
+        f.write(f"Total steps         : {total_steps}\n\n")
+
+        f.write(f"{'Integrator':<15}  {'Final dE/E0':>14}  {'Min dE/E0':>14}  "
+                f"{'Max dE/E0':>14}  {'Amplitude (pk-pk/2)':>20}\n")
+        f.write("-" * 80 + "\n")
+
+        for integrator, label in zip(integrators, labels):
+            times, frac = energy_data[integrator]
+            arr = np.array(frac)
+            final = arr[-1]
+            mn = arr.min()
+            mx = arr.max()
+            amp = (mx - mn) / 2  # half peak-to-peak
+            f.write(f"{label:<15}  {final:>+14.6e}  {mn:>+14.6e}  "
+                    f"{mx:>+14.6e}  {amp:>20.6e}\n")
+
+        f.write("\nNotes:\n")
+        f.write("  Amplitude = half peak-to-peak of dE/E0.\n")
+        f.write("  For Beeman and Euler-Cromer the energy oscillates, so the\n")
+        f.write("  final dE/E0 is phase-dependent and not a reliable drift metric.\n")
+        f.write("  For Direct Euler the final value reflects genuine secular drift.\n")
+
+    print(f"Summary written  → {txt_path}")
+
+    # Plot 1: all three integrators on one axes
     fig1, ax1 = plt.subplots(figsize=(9, 5))
 
+    #zip takes multiple iterable objects and aggregates them into a single iterator of tuples.
     for integrator, label, colour in zip(integrators, labels, colours):
         times, frac = energy_data[integrator]
         ax1.plot(times, frac, label=label, color=colour, linewidth=1.2)
 
     ax1.set_xlabel("Time (Earth years)")
-    ax1.set_ylabel("Fractional energy change  (E - E₀) / |E₀|")
+    ax1.set_ylabel("Fractional energy change  (E - E_0) / |E_0|")
     ax1.set_title("Experiment 2: Energy Conservation — All Three Integrators")
     ax1.legend()
     ax1.axhline(0, color="grey", linewidth=0.8, linestyle="--")
     plt.tight_layout()
+    fig1.savefig(output_dir / "exp2_combined.png", dpi=150, bbox_inches="tight")
+    print(f"Saved           → {output_dir / 'exp2_combined.png'}")
     plt.show()
 
-    # --- Plot 2: one subplot per integrator, y-axis set to actual min/max ---
+    # Plot 2: one subplot per integrator, y-axis set to actual min/max
     fig2, axes = plt.subplots(3, 1, figsize=(9, 10), sharex=True)
 
     def rolling_mean(data: list, window: int) -> np.ndarray:
         """
         Compute centred rolling mean with the given window size.
         Edges are handled by shrinking the window so every point gets a value.
+
+        Parameters
+        ----------
+        data   : list of numerical values to be smoothed
+        window : integer specifying the total width of the sliding window
+
+        Returns
+        -------
+        out    : n-dimensional array containing the smoothed data
         """
         arr = np.array(data)
         out = np.empty_like(arr)
         half = window // 2
+        # This loop handles the rolling mean window for edges
         for i in range(len(arr)):
             lo = max(0, i - half)
             hi = min(len(arr), i + half + 1)
@@ -92,7 +140,6 @@ def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
         return out
 
     # Window size in steps: ~1 Earth year worth of steps smooths out
-    # short-period oscillations (Mercury ~88 days, Earth 365 days)
     fast_window = int(EARTH_YEAR / dt)   # 1-year rolling mean
     slow_window = fast_window * 3        # 3-year rolling mean of that
 
@@ -111,7 +158,7 @@ def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
         ax.plot(times, arr, color=colour, linewidth=0.8, alpha=0.5, label="Raw")
 
         # First rolling mean
-        ax.plot(times, smooth_1, color="white", linewidth=1.2,
+        ax.plot(times, smooth_1, color="black", linewidth=1.2,
                 linestyle="--", alpha=0.8, label=f"Rolling mean ({fast_window} steps)")
 
         # Second rolling mean (trend)
@@ -132,4 +179,6 @@ def run_experiment_2(data_file: str, dt: float, num_years: int = 5) -> None:
     axes[-1].set_xlabel("Time (Earth years)")
     fig2.suptitle("Experiment 2: Energy Conservation — Individual Integrators", fontsize=12)
     plt.tight_layout()
+    fig2.savefig(output_dir / "exp2_individual.png", dpi=150, bbox_inches="tight")
+    print(f"Saved           → {output_dir / 'exp2_individual.png'}")
     plt.show()
