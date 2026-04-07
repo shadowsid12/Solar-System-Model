@@ -76,8 +76,8 @@ OMEGA_EARTH  = 2 * np.pi / EARTH_YEAR
 V_L2         = OMEGA_EARTH * R_L2_SUN   # ~30283 m/s
 
 # Hohmann delta-v from L2 to Mars (minimum energy reference)
-_V_TRANSFER  = np.sqrt(G * SUN_MASS * (2/R_L2_SUN - 1/((R_L2_SUN + 2.279e11)/2)))
-HOHMANN_DV   = _V_TRANSFER - V_L2       # ~2681 m/s
+V_TRANSFER  = np.sqrt(G * SUN_MASS * (2/R_L2_SUN - 1/((R_L2_SUN + 2.279e11)/2)))
+HOHMANN_DV   = V_TRANSFER - V_L2       # ~2681 m/s
 
 # ------------------------------------------------------------------
 # Mission parameters
@@ -156,12 +156,8 @@ def add_satellite(sim: Simulation, delta_v: float, theta_deg: float) -> Body:
     )
     # Note: the satellite's mass does appear in the N-body acceleration equations —
     # it exerts a gravitational pull on all other bodies (Mars, Earth, Sun).
-    # However, at SATELLITE_MASS = 1 kg vs planetary masses of ~10^23-10^30 kg,
-    # the perturbation is of order 10^-21 and is physically negligible.
-    # The satellite's own trajectory is unaffected by its mass for the same
-    # reason objects of different mass fall identically in a gravitational field:
-    # in the two-body limit, mass cancels from F = ma. In the full N-body case
-    # the correction exists but is far below numerical precision.
+    # However, at SATELLITE_MASS = 1000 kg vs planetary masses of ~10^23-10^30 kg,
+    # the perturbation is physically negligible.
     satellite.position = pos_L2
     satellite.velocity = vel_L2 + delta_v * burn_dir
 
@@ -270,7 +266,7 @@ def run_experiment_3(data_file: str, launch_speeds: list[float],
             returned       = False
             traj           = []
 
-            for _ in range(total_steps):
+            for i in range(total_steps):
                 sim.step()
                 sat_pos    = satellite.position.copy()
                 dist_mars  = np.linalg.norm(sat_pos - mars.position)
@@ -350,7 +346,7 @@ def run_experiment_3(data_file: str, launch_speeds: list[float],
 
 
 # ------------------------------------------------------------------
-# Visualisation
+# Visualisation (help from AI was taken to make it visually appealing)
 # ------------------------------------------------------------------
 
 def plot_trajectory(best: dict, dt: float) -> None:
@@ -387,7 +383,7 @@ def plot_trajectory(best: dict, dt: float) -> None:
     ax.plot(traj[cs, 0], traj[cs, 1], "*", color="red", markersize=12,
             label=f"Closest ({best['min_dist_au']:.3f} AU)")
 
-    # Draw the Mars approach threshold circle
+    # Draw the Mars approach threshold circle (not visible for 0.02 AU)
     theta_ring = np.linspace(0, 2 * np.pi, 200)
     mars = next(b for b in sim.bodies if b.name == "Mars")
     mx, my = mars.position / AU
