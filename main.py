@@ -178,12 +178,33 @@ def run_experiment_3():
 RUN_MODE = "sim"
 
 if __name__ == "__main__":
-    if RUN_MODE == "exp1":
-        run_experiment_1()
-    elif RUN_MODE == "exp2":
-        run_experiment_2()
-    elif RUN_MODE == "exp3":
-        run_experiment_3()
+    import argparse
 
+    parser = argparse.ArgumentParser(
+        description="Solar System N-body Simulation",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["sim", "exp1", "exp2", "exp3"],
+        default=None,
+        help=(
+            "sim   — default solar system animation\n"
+            "exp1  — Experiment 1: Orbital Periods\n"
+            "exp2  — Experiment 2: Energy Conservation\n"
+            "exp3  — Experiment 3: Satellite to Mars"
+        ),
+    )
+    args = parser.parse_args()
+
+    # Command-line argument takes priority over the RUN_MODE variable above
+    mode = args.mode if args.mode is not None else RUN_MODE
+
+    if mode == "exp1":
+        run_experiment_1()
+    elif mode == "exp2":
+        run_experiment_2()
+    elif mode == "exp3":
+        run_experiment_3()
     else:
         run_default_simulation()

@@ -20,8 +20,32 @@ pip install numpy matplotlib pandas
 
 HOW TO RUN
 ----------
-Edit RUN_MODE in main.py, then:
-    python main.py
+In your CLI, change directory to parent folder where the files have been unzipped
+Then, run the following
+
+python main.py --mode <mode>
+
+where <mode> is one of:
+
+    sim    default solar system animation
+    exp1   Experiment 1: Orbital Periods
+    exp2   Experiment 2: Energy Conservation
+    exp3   Experiment 3: Satellite to Mars
+
+EXAMPLES
+--------
+    python main.py --mode sim
+    python main.py --mode exp1
+    python main.py --mode exp2
+    python main.py --mode exp3
+
+For help:
+    python main.py --help
+
+NOTE
+----
+If --mode is not provided, the script falls back to the
+RUN_MODE variable set at the bottom of main.py (default: "sim").
 
 RUN_MODE options:
     "sim"   — Solar system animation (Beeman integrator, dt = T/1000)
@@ -58,10 +82,12 @@ Experiment 3:
 
 NOTES
 -----
-All code is commented, some for explanation and some for self-reference.
-The simulation is not optimised for speed.
-Docstrings are given for all functions and classes and files.
-This codebase is maintained by me and is a public repo on GitHub, as I intend to
-continue to improve it later.
+- All code is commented, some for explanation and some for self-reference.
+- An output folder is generated automatically in the same directory as the 
+  rest of the files. This is done when the experiments are run.
+- The simulation is not optimised for speed.
+- Docstrings are given for all functions and classes and files.
+- This codebase is maintained by me and is a public repo on GitHub, as I intend to
+  continue to improve it later.
 
 https://github.com/shadowsid12/Solar-System-Model
