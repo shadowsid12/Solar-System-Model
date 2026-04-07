@@ -25,8 +25,7 @@ Mars detection
 A trajectory is marked as reaching Mars if the satellite comes within
 MARS_APPROACH_THRESHOLD_AU (0.3 AU) of Mars at any point during the 2-year
 simulation window. This threshold is well below the initial Earth-Mars
-separation (~0.524 AU), so no time gate is needed. Trajectories that never
-cross this threshold are marked "does not reach Mars".
+separation (~0.524 AU), so no time gate is needed.
 
 Outputs
 -------
@@ -85,7 +84,7 @@ HOHMANN_DV   = _V_TRANSFER - V_L2       # ~2681 m/s
 # ------------------------------------------------------------------
 
 PERSEVERANCE_JOURNEY_DAYS = 203.0   # Jul 30 2020 -> Feb 18 2021
-SATELLITE_MASS            = 1000.0     # kg
+SATELLITE_MASS            = 1000.0     # kg — mass doesn't affect trajectory
 
 # ------------------------------------------------------------------
 # Mars approach threshold
@@ -94,7 +93,7 @@ SATELLITE_MASS            = 1000.0     # kg
 # this distance. Set well below the initial Earth-Mars separation (~0.524 AU)
 # so no time gate is needed to suppress false positives at launch.
 
-MARS_APPROACH_THRESHOLD_AU = 0.02
+MARS_APPROACH_THRESHOLD_AU = 0.02   #
 
 # ------------------------------------------------------------------
 # Return-to-Earth thresholds
@@ -104,7 +103,6 @@ MARS_APPROACH_THRESHOLD_AU = 0.02
 # radius on the other side of the Sun from triggering a false return.
 
 EARTH_RETURN_THRESHOLD_AU = 0.01
-EARTH_RETURN_ANGLE_DEG    = 5.0
 
 
 # ------------------------------------------------------------------
@@ -156,7 +154,14 @@ def add_satellite(sim: Simulation, delta_v: float, theta_deg: float) -> Body:
         colour="white",
         is_satellite=True,
     )
-
+    # Note: the satellite's mass does appear in the N-body acceleration equations —
+    # it exerts a gravitational pull on all other bodies (Mars, Earth, Sun).
+    # However, at SATELLITE_MASS = 1 kg vs planetary masses of ~10^23-10^30 kg,
+    # the perturbation is of order 10^-21 and is physically negligible.
+    # The satellite's own trajectory is unaffected by its mass for the same
+    # reason objects of different mass fall identically in a gravitational field:
+    # in the two-body limit, mass cancels from F = ma. In the full N-body case
+    # the correction exists but is far below numerical precision.
     satellite.position = pos_L2
     satellite.velocity = vel_L2 + delta_v * burn_dir
 
@@ -281,13 +286,9 @@ def run_experiment_3(data_file: str, launch_speeds: list[float],
                     min_dist_m     = dist_mars
                     journey_time_s = sim.time
 
-                # Return check: both conditions after fly-past
+                # Return check: satellite within Earth's Hill sphere after fly-past
                 if journey_time_s > 0 and sim.time > journey_time_s + 30 * DAY:
-                    a_sat   = np.arctan2(sat_pos[1], sat_pos[0])
-                    a_earth = np.arctan2(earth.position[1], earth.position[0])
-                    d_ang   = abs((a_sat - a_earth + np.pi) % (2*np.pi) - np.pi)
-                    if (dist_earth / AU < EARTH_RETURN_THRESHOLD_AU
-                            and np.degrees(d_ang) < EARTH_RETURN_ANGLE_DEG):
+                    if dist_earth / AU < EARTH_RETURN_THRESHOLD_AU:
                         returned = True
 
             min_dist_au  = min_dist_m / AU if min_dist_m < np.inf else float("nan")
@@ -412,7 +413,7 @@ def plot_scatter(rows: list[dict], best: dict) -> None:
     Scatter plots of trajectories that reach Mars only.
     Colour encodes burn angle. Marker shape distinguishes return status:
         o  — reaches Mars, does not return to Earth
-        D  — reaches Mars AND returns to Earth
+        *  — reaches Mars AND returns to Earth
     Non-reaching trajectories are excluded entirely.
     """
     reaching = [r for r in rows if r["reached_mars"]]
@@ -449,7 +450,7 @@ def plot_scatter(rows: list[dict], best: dict) -> None:
         if mask_return.any():
             sc_ref = ax.scatter(dvs[mask_return], y_all[mask_return],
                                 c=angles[mask_return], cmap="plasma",
-                                s=150, alpha=1.0, marker="D",
+                                s=150, alpha=1.0, marker="*",
                                 edgecolors="lime", linewidths=0.7,
                                 vmin=vmin, vmax=vmax)
 
@@ -471,17 +472,17 @@ def plot_scatter(rows: list[dict], best: dict) -> None:
 
     # Best trajectory red star on both plots
     axes[0].scatter(best["delta_v_ms"], best["journey_days"],
-                    marker="D", s=350, color="red", zorder=6,
+                    marker="*", s=350, color="red", zorder=6,
                     label=f"Best  Δv={best['delta_v_ms']:.0f} m/s, "
                           f"θ={best['angle_deg']:.0f}°")
     axes[1].scatter(best["delta_v_ms"], best["min_dist_au"],
-                    marker="D", s=350, color="red", zorder=6, label="Best")
+                    marker="*", s=350, color="red", zorder=6, label="Best")
 
     # Legend: marker shapes only
     legend_elements = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor="grey",
                markersize=8, label="Reaches Mars"),
-        Line2D([0], [0], marker="D", color="w", markerfacecolor="white",
+        Line2D([0], [0], marker="*", color="w", markerfacecolor="white",
                markeredgecolor="lime", markersize=11,
                label="Reaches Mars + returns to Earth"),
     ]
@@ -554,7 +555,7 @@ def animate_trajectory(data_file: str, delta_v: float, theta_deg: float,
         planet_dots[name]   = dot
         planet_labels[name] = lbl
 
-    closest_marker, = ax.plot([], [], "*", color="red", markersize=10, zorder=6,
+    closest_marker, = ax.plot([], [], "*", color="red", markersize=14, zorder=6,
                                label=f"Closest ({min_dist_au:.3f} AU)")
     time_text = ax.text(0.02, 0.97, "", transform=ax.transAxes,
                         color="white", fontsize=9, va="top")

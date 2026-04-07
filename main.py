@@ -12,6 +12,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
+matplotlib.use("TkAgg")  # change to "Qt5Agg" if TkAgg is unavailable. This is to generate a moving simulation
+
 from simulation import Simulation
 
 # ------------------------------------------------------------------
@@ -45,7 +47,7 @@ def run_default_simulation():
     energy_log_interval = 50    # log energy every N steps
 
     # --- Setup figure ---
-    fig, ax = plt.subplots(figsize=(8, 8), facecolor="black")
+    fig, ax = plt.subplots(figsize=(10, 10), facecolor="black")
     ax.set_facecolor("black")
     ax.set_aspect("equal")
 
@@ -73,7 +75,7 @@ def run_default_simulation():
 
     for body in sim.bodies:
         # Dot — slightly larger for Sun
-        size = 12 if body.name == "Sun" else 5
+        size = 6 if body.name == "Sun" else 3
         dot, = ax.plot([], [], "o", color=body.colour, markersize=size,
                        label=body.name, zorder=3)
         dots.append(dot)
@@ -164,9 +166,8 @@ def run_experiment_2():
 
 def run_experiment_3():
     from experiment_3 import run_experiment_3 as exp3, HOHMANN_DV
-    # Search centred on the Hohmann delta-v from L1 to Mars (~3475 m/s)
-    launch_speeds = list(np.linspace(HOHMANN_DV * 0.7, HOHMANN_DV * 1.6, 10))
-    angles        = list(np.linspace(-90, 90, 10))   # degrees from Earth's prograde
+    launch_speeds = list(np.linspace(HOHMANN_DV * 1.0, HOHMANN_DV * 1.6, 100))
+    angles        = list(np.linspace(-60, 60, 101))   # degrees from Earth's prograde
     exp3(str(DATA_FILE), launch_speeds, angles, dt=DT)
 
 # Change RUN_MODE to select what to run:
@@ -174,7 +175,7 @@ def run_experiment_3():
 #   "exp1" — Experiment 1: Orbital Periods
 #   "exp2" — Experiment 2: Energy Conservation
 #   "exp3" — Experiment 3: Satellite to Mars
-RUN_MODE = "exp2"
+RUN_MODE = "sim"
 
 if __name__ == "__main__":
     if RUN_MODE == "exp1":
